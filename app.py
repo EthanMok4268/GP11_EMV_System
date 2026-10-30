@@ -445,6 +445,46 @@ def update_voter_status(election_id, voter_id):
                 "UPDATE voter_participation SET status = ? WHERE election_id = ? AND voter_id = ?",
                 (new_status, election_id, voter_id)
             )
+            log_audit(session["user_id"], f"Set Voter ID {voter_id} eligibility to {new_status} for Election ID {election_id}")
+        flash(f"Voter eligibility updated to {new_status}.", "success")
+    return redirect(url_for("view_election", election_id=election_id))
+
+
+# 👇 確保呢段貼喺呢度，而且 @app.route 貼齊最左邊！
+@app.route("/admin/election/<int:election_id>/close", methods=["POST"])
+@login_required
+@admin_required
+def close_election_early(election_id):
+    db = get_db()
+    election = db.execute("SELECT * FROM elections WHERE id = ?", (election_id,)).fetchone()
+    if not election:
+        flash("Election not found.", "danger")
+        return redirect(url_for("dashboard"))
+
+    status = get_election_status(election["start_time"], election["end_time"])
+    if status != "ACTIVE":
+        flash("Only ACTIVE elections can be closed early.", "warning")
+        return redirect(url_for("view_election", election_id=election_id))
+
+    early_end_time = (datetime.now() - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
+    with db:
+        db.execute(
+            "UPDATE elections SET end_time = ? WHERE id = ?",
+            (early_end_time, election_id)
+        )
+        log_audit(session["user_id"], f"Closed Election ID {election_id} ('{election['title']}') early")
+
+    flash("Election has been closed early. Official results are now published.", "info")
+    return redirect(url_for("view_election", election_id=election_id))
+
+    new_status = request.form.get("status")
+    if new_status in ("APPROVED", "REJECTED"):
+        db = get_db()
+        with db:
+            db.execute(
+                "UPDATE voter_participation SET status = ? WHERE election_id = ? AND voter_id = ?",
+                (new_status, election_id, voter_id)
+            )
             log_audit(session["user_id"],
                       f"Set Voter ID {voter_id} eligibility to {new_status} for Election ID {election_id}")
         flash(f"Voter eligibility updated to {new_status}.", "success")
@@ -593,9 +633,16 @@ ELECTION_DETAIL_HTML = """
 <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-secondary mb-3">&larr; Back to Elections</a>
 <div class="card shadow-sm mb-4">
     <div class="card-body">
-        <div class="d-flex justify-content-between">
+       <div class="d-flex justify-content-between align-items-center">
             <h3>{{ election.title }}</h3>
-            <span class="badge {% if status == 'ACTIVE' %}bg-success{% elif status == 'UPCOMING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} fs-6 align-self-start">{{ status }}</span>
+            <div>
+                <span class="badge {% if status == 'ACTIVE' %}bg-success{% elif status == 'UPCOMING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
+                {% if session['role'] == 'ADMIN' and status == 'ACTIVE' %}
+                <form method="POST" action="{{ url_for('close_election_early', election_id=election.id) }}" class="d-inline ms-2" onsubmit="return confirm('Are you sure you want to end this election early and publish results?');">
+                    <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
+                </form>
+                {% endif %}
+            </div>
         </div>
         <p class="text-muted mb-1">{{ election.description }}</p>
         <small class="text-secondary">Start: {{ election.start_time }} | End: {{ election.end_time }}</small>
