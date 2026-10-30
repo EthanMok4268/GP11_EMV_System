@@ -6,7 +6,7 @@ from flask import Blueprint, flash, redirect, request, session, url_for
 from . import db as database
 from .auth import login_required
 from .db import get_db
-from .services import record_vote
+from .services import get_election_status, record_vote
 
 bp = Blueprint("voting", __name__)
 
@@ -18,8 +18,13 @@ bp = Blueprint("voting", __name__)
 @login_required
 def request_participation(election_id):
     try:
-        database.create_participation(election_id, session["user_id"])
-        get_db().commit()
+        with get_db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            election = database.find_election(election_id)
+            if session.get("role") != "VOTER" or not election or get_election_status(election) == "DRAFT":
+                flash("Participation is not available for this election.", "danger")
+                return redirect(url_for("elections.dashboard"))
+            database.create_participation(election_id, session["user_id"])
         flash("Participation request submitted. Waiting for administrator approval.", "success")
     except sqlite3.IntegrityError:
         flash("You have already submitted a request for this election.", "warning")

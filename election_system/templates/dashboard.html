@@ -18,7 +18,7 @@
                     {% endif %}
                 </div>
                 <div class="text-end">
-                    <span class="badge {% if item.status == 'ACTIVE' %}bg-success{% elif item.status == 'UPCOMING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} d-block mb-2">
+                    <span class="badge {% if item.status == 'DRAFT' %}bg-primary{% elif item.status == 'UPCOMING' %}bg-warning text-dark{% elif item.status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %} d-block mb-2">
                         {{ item.status }}
                     </span>
                     <a href="{{ url_for('elections.view_election', election_id=item.row.id) }}" class="btn btn-sm btn-outline-primary">Open Election</a>
@@ -33,6 +33,7 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white fw-bold">Create New Election</div>
             <div class="card-body">
+                <p class="text-muted small">New elections are private drafts. Add at least two candidates with complete manifestos, then confirm the election.</p>
                 <form method="POST" action="{{ url_for('admin.create_election') }}">
                     <div class="mb-2"><label class="form-label small">Title</label><input type="text" name="title" class="form-control form-control-sm" required></div>
                     <div class="mb-2"><label class="form-label small">Description</label><textarea name="description" class="form-control form-control-sm"></textarea></div>

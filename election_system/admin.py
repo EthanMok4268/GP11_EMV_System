@@ -7,9 +7,27 @@ from flask import Blueprint, flash, redirect, request, session, url_for
 from . import db as database
 from .auth import admin_required, login_required
 from .db import get_db
-from .services import get_election_status, update_election_details, validate_election_parameters
+from .services import (
+    change_candidate, confirm_election as confirm_election_service, get_election_status,
+    update_election_details, validate_election_parameters,
+)
 
 bp = Blueprint("admin", __name__)
+
+
+def _admin_action(election_id, action, **values):
+    try:
+        message, category = action(election_id, session["user_id"], **values)
+    except LookupError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("elections.dashboard"))
+    except ValueError as error:
+        message, category = str(error), "danger"
+    except sqlite3.Error:
+        message = "Unable to save changes. Changes were rolled back. Please try again."
+        category = "danger"
+    flash(message, category)
+    return redirect(url_for("elections.view_election", election_id=election_id))
 
 
 # -------------------------------------------------------------------------
@@ -35,7 +53,7 @@ def create_election():
     except sqlite3.Error:
         flash("Unable to create the election. Changes were rolled back. Please try again.", "danger")
         return redirect(url_for("elections.dashboard"))
-    flash("Election created successfully.", "success")
+    flash("Election created successfully. Prepare the candidates, then confirm the election.", "success")
     return redirect(url_for("elections.dashboard"))
 
 
@@ -46,22 +64,23 @@ def create_election():
 @login_required
 @admin_required
 def update_election(election_id):
-    try:
-        message, category = update_election_details(
-            election_id, session["user_id"],
-            request.form.get("title", ""), request.form.get("description", ""),
-            request.form.get("start_time", ""), request.form.get("end_time", ""),
-        )
-    except LookupError as error:
-        flash(str(error), "danger")
-        return redirect(url_for("elections.dashboard"))
-    except ValueError as error:
-        message, category = str(error), "danger"
-    except sqlite3.Error:
-        message = "Unable to update the election. Changes were rolled back. Please try again."
-        category = "danger"
-    flash(message, category)
-    return redirect(url_for("elections.view_election", election_id=election_id))
+    return _admin_action(
+        election_id, update_election_details,
+        title=request.form.get("title", ""), description=request.form.get("description", ""),
+        start_time=request.form.get("start_time", ""), end_time=request.form.get("end_time", ""),
+    )
+
+
+# -------------------------------------------------------------------------
+# ROUTES: CONFIRM THE ROSTER AND SCHEDULE OR START VOTING
+# -------------------------------------------------------------------------
+@bp.route("/admin/election/<int:election_id>/confirm", methods=["POST"])
+@login_required
+@admin_required
+def confirm_election(election_id):
+    return _admin_action(
+        election_id, confirm_election_service, confirmation_token=request.form.get("confirmation_token", "")
+    )
 
 
 # -------------------------------------------------------------------------
@@ -71,19 +90,24 @@ def update_election(election_id):
 @login_required
 @admin_required
 def add_candidate(election_id):
-    election = database.find_election(election_id)
-    if get_election_status(election["start_time"], election["end_time"]) != "UPCOMING":
-        flash("Candidate Constraint: Candidates can only be added before an election begins (UPCOMING status).", "danger")
-        return redirect(url_for("elections.view_election", election_id=election_id))
+    return _admin_action(
+        election_id, change_candidate, operation="add",
+        name=request.form.get("name", ""), manifesto=request.form.get("manifesto", ""),
+    )
 
-    name = request.form.get("name", "").strip()
-    manifesto = request.form.get("manifesto", "").strip()
-    if name:
-        with get_db():
-            database.add_candidate(election_id, name, manifesto)
-            database.log_audit(session["user_id"], f"Added candidate '{name}' to Election ID {election_id}")
-        flash(f"Candidate '{name}' added.", "success")
-    return redirect(url_for("elections.view_election", election_id=election_id))
+
+# -------------------------------------------------------------------------
+# ROUTES: EDIT A CANDIDATE
+# -------------------------------------------------------------------------
+@bp.route("/admin/election/<int:election_id>/candidate/<int:cand_id>/update", methods=["POST"])
+@login_required
+@admin_required
+def update_candidate(election_id, cand_id):
+    return _admin_action(
+        election_id, change_candidate, operation="update", candidate_id=cand_id,
+        name=request.form.get("name", ""), manifesto=request.form.get("manifesto", ""),
+        edit_token=request.form.get("edit_token", ""),
+    )
 
 
 # -------------------------------------------------------------------------
@@ -93,15 +117,7 @@ def add_candidate(election_id):
 @login_required
 @admin_required
 def delete_candidate(election_id, cand_id):
-    election = database.find_election(election_id)
-    if get_election_status(election["start_time"], election["end_time"]) != "UPCOMING":
-        flash("Candidate Constraint: Candidates cannot be removed after an election starts.", "danger")
-        return redirect(url_for("elections.view_election", election_id=election_id))
-    with get_db():
-        database.delete_candidate(election_id, cand_id)
-        database.log_audit(session["user_id"], f"Removed candidate ID {cand_id} from Election ID {election_id}")
-    flash("Candidate removed.", "info")
-    return redirect(url_for("elections.view_election", election_id=election_id))
+    return _admin_action(election_id, change_candidate, operation="delete", candidate_id=cand_id)
 
 
 # -------------------------------------------------------------------------
@@ -135,7 +151,7 @@ def close_election_early(election_id):
         flash("Election not found.", "danger")
         return redirect(url_for("elections.dashboard"))
 
-    status = get_election_status(election["start_time"], election["end_time"])
+    status = get_election_status(election)
     if status != "ACTIVE":
         flash("Only ACTIVE elections can be closed early.", "warning")
         return redirect(url_for("elections.view_election", election_id=election_id))

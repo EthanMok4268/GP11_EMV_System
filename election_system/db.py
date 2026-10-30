@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS elections (
     title TEXT NOT NULL,
     description TEXT,
     start_time TEXT NOT NULL,
-    end_time TEXT NOT NULL
+    end_time TEXT NOT NULL,
+    is_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(is_confirmed IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS candidates (
@@ -85,8 +86,50 @@ def close_db(exception=None):
 # -------------------------------------------------------------------------
 def init_db():
     db = get_db()
+    migrate_election_confirmation(db)
     db.executescript(SCHEMA)
     seed_demo_data(db)
+
+
+def migrate_election_confirmation(db):
+    """Preflight and atomically upgrade legacy elections without reopening history."""
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(elections)")}
+    if not columns or "is_confirmed" in columns:
+        return
+    with db:
+        db.execute("BEGIN IMMEDIATE")
+        # Another initializer may have migrated while this connection waited.
+        if "is_confirmed" in {row["name"] for row in db.execute("PRAGMA table_info(elections)")}:
+            return
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        confirmations = []
+        blocked = []
+        for election in db.execute("SELECT * FROM elections"):
+            candidates = db.execute(
+                "SELECT name, manifesto FROM candidates WHERE election_id = ?", (election["id"],)
+            ).fetchall()
+            complete = len(candidates) >= 2 and all(
+                (candidate["name"] or "").strip() and (candidate["manifesto"] or "").strip()
+                for candidate in candidates
+            )
+            closed = election["end_time"] < now
+            has_ballots = db.execute(
+                "SELECT 1 FROM ballots WHERE election_id = ? LIMIT 1", (election["id"],)
+            ).fetchone() is not None
+            if not closed and not complete and has_ballots:
+                blocked.append(str(election["id"]))
+            confirmations.append((int(closed or complete), election["id"]))
+        if blocked:
+            raise RuntimeError(
+                "Election upgrade blocked. Close these elections using the previous application "
+                "before upgrading: " + ", ".join(blocked)
+                + ". They have accepted ballots but do not meet the two-candidate readiness rules."
+            )
+        db.execute(
+            "ALTER TABLE elections ADD COLUMN is_confirmed INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(is_confirmed IN (0, 1))"
+        )
+        db.executemany("UPDATE elections SET is_confirmed = ? WHERE id = ?", confirmations)
 
 
 def init_app(app):
@@ -112,7 +155,7 @@ def seed_demo_data(db):
         start_active = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
         end_active = (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
         db.execute(
-            "INSERT INTO elections (title, description, start_time, end_time) VALUES (?, ?, ?, ?)",
+            "INSERT INTO elections (title, description, start_time, end_time, is_confirmed) VALUES (?, ?, ?, ?, 1)",
             ("Student Union Presidential Election", "Annual vote for the Student Union President.", start_active,
              end_active)
         )
@@ -154,7 +197,7 @@ def list_candidates(election_id):
 
 def find_candidate(election_id, candidate_id):
     return get_db().execute(
-        "SELECT id FROM candidates WHERE id = ? AND election_id = ?", (candidate_id, election_id)
+        "SELECT * FROM candidates WHERE id = ? AND election_id = ?", (candidate_id, election_id)
     ).fetchone()
 
 
@@ -247,13 +290,27 @@ def update_election(election_id, title, description, start_time, end_time):
 
 
 def add_candidate(election_id, name, manifesto):
-    get_db().execute(
+    cursor = get_db().execute(
         "INSERT INTO candidates (election_id, name, manifesto) VALUES (?, ?, ?)", (election_id, name, manifesto)
+    )
+    return cursor.lastrowid
+
+
+def update_candidate(election_id, candidate_id, name, manifesto):
+    get_db().execute(
+        "UPDATE candidates SET name = ?, manifesto = ? WHERE election_id = ? AND id = ?",
+        (name, manifesto, election_id, candidate_id),
     )
 
 
 def delete_candidate(election_id, candidate_id):
     get_db().execute("DELETE FROM candidates WHERE id = ? AND election_id = ?", (candidate_id, election_id))
+
+
+def set_election_confirmation(election_id, is_confirmed):
+    get_db().execute(
+        "UPDATE elections SET is_confirmed = ? WHERE id = ?", (int(is_confirmed), election_id)
+    )
 
 
 # -------------------------------------------------------------------------

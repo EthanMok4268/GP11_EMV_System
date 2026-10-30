@@ -6,7 +6,7 @@
        <div class="d-flex justify-content-between align-items-center">
             <h3>{{ election.title }}</h3>
             <div>
-                <span class="badge {% if status == 'ACTIVE' %}bg-success{% elif status == 'UPCOMING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
+                <span class="badge {% if status == 'DRAFT' %}bg-primary{% elif status == 'UPCOMING' %}bg-warning text-dark{% elif status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
                 {% if session['role'] == 'ADMIN' and status == 'ACTIVE' %}
                 <form method="POST" action="{{ url_for('admin.close_election_early', election_id=election.id) }}" class="d-inline ms-2" onsubmit="return confirm('Are you sure you want to end this election early and publish results?');">
                     <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
@@ -54,9 +54,12 @@
                     {% endif %}
                 {% endif %}
 
+                {% if session['role'] == 'VOTER' %}
                 <form method="POST" action="{{ url_for('voting.cast_vote', election_id=election.id) }}">
+                {% endif %}
                     {% for c in candidates %}
-                    <div class="border rounded p-3 mb-2 d-flex justify-content-between align-items-center">
+                    <div class="border rounded p-3 mb-2">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
                         <div class="form-check">
                             {% if session['role'] == 'VOTER' and status == 'ACTIVE' and participation and participation.status == 'APPROVED' and not participation.has_voted %}
                             <input class="form-check-input" type="radio" name="candidate_id" value="{{ c.id }}" id="c{{ c.id }}" required>
@@ -64,8 +67,28 @@
                             <label class="form-check-label fw-bold" for="c{{ c.id }}">{{ c.name }}</label>
                             <div class="text-muted small">{{ c.manifesto }}</div>
                         </div>
-                        {% if session['role'] == 'ADMIN' and status == 'UPCOMING' %}
-                        <button type="submit" formaction="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="btn btn-sm btn-outline-danger" formnovalidate>Remove</button>
+                        {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING') %}
+                        <form method="POST" action="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="m-0">
+                            <button type="submit" formaction="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="btn btn-sm btn-outline-danger">Remove</button>
+                        </form>
+                        {% endif %}
+                        </div>
+                        {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING') %}
+                        <details class="mt-2">
+                            <summary class="text-primary">Edit</summary>
+                            <form method="POST" action="{{ url_for('admin.update_candidate', election_id=election.id, cand_id=c.id) }}" class="mt-3">
+                                <input type="hidden" name="edit_token" value="{{ candidate_tokens[c.id] }}">
+                                <div class="mb-2">
+                                    <label for="candidate-name-{{ c.id }}" class="form-label small">Candidate Name</label>
+                                    <input id="candidate-name-{{ c.id }}" name="name" value="{{ c.name }}" class="form-control form-control-sm" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="candidate-manifesto-{{ c.id }}" class="form-label small">Manifesto / Bio</label>
+                                    <textarea id="candidate-manifesto-{{ c.id }}" name="manifesto" rows="3" class="form-control form-control-sm" required>{{ c.manifesto or '' }}</textarea>
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-primary">Save Candidate</button>
+                            </form>
+                        </details>
                         {% endif %}
                     </div>
                     {% else %}
@@ -79,21 +102,48 @@
                             <button type="submit" class="btn btn-success w-100 mt-3">Confirm & Submit Anonymous Ballot</button>
                         {% endif %}
                     {% endif %}
+                {% if session['role'] == 'VOTER' %}
                 </form>
+                {% endif %}
             </div>
         </div>
     </div>
 
     {% if session['role'] == 'ADMIN' %}
     <div class="col-md-5">
+        {% if status in ('DRAFT', 'UPCOMING') %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Election Readiness</div>
+            <div class="card-body">
+                <p>Candidates: <strong>{{ candidates|length }}</strong> (at least 2 required)</p>
+                {% if status == 'DRAFT' %}
+                <p class="text-muted small">This draft is visible only to administrators. Prepare the complete roster, then confirm the election to start voting or keep its scheduled start.</p>
+                {% if readiness_issues %}
+                <ul class="small text-danger">
+                    {% for issue in readiness_issues %}<li>{{ issue }}</li>{% endfor %}
+                </ul>
+                {% endif %}
+                <form method="POST" action="{{ url_for('admin.confirm_election', election_id=election.id) }}">
+                    <input type="hidden" name="confirmation_token" value="{{ confirmation_token }}">
+                    <button type="submit" class="btn btn-success btn-sm w-100"{% if readiness_issues %} disabled{% endif %}>Confirm Election</button>
+                </form>
+                {% else %}
+                <p class="text-muted small mb-0">The roster is confirmed. Voting will begin at the scheduled time. Changing candidates returns this election to draft and requires confirmation again.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         <div class="card shadow-sm mb-4">
             <div class="card-header fw-bold">Edit Election</div>
             <div class="card-body">
-                {% if status in ('UPCOMING', 'ACTIVE') %}
+                {% if status in ('DRAFT', 'UPCOMING', 'ACTIVE') %}
                 {% if status == 'ACTIVE' %}
                 <p class="text-muted small" id="edit-election-time-help">Voting has started. The start time is locked, and the end time can only stay the same or be extended.</p>
-                {% else %}
+                {% elif status == 'UPCOMING' %}
                 <p class="text-muted small" id="edit-election-time-help">The start time must remain in the future.</p>
+                {% else %}
+                <p class="text-muted small" id="edit-election-time-help">Prepare this draft and update its schedule before confirming. An expired draft can be rescheduled.</p>
                 {% endif %}
                 <form method="POST" action="{{ url_for('admin.update_election', election_id=election.id) }}">
                     <div class="mb-2">
@@ -120,9 +170,9 @@
             </div>
         </div>
 
-        {% if status == 'UPCOMING' %}
+        {% if status in ('DRAFT', 'UPCOMING') %}
         <div class="card shadow-sm mb-4">
-            <div class="card-header fw-bold">Add Candidate (Allowed while UPCOMING)</div>
+            <div class="card-header fw-bold">Add Candidate (Before Voting Starts)</div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('admin.add_candidate', election_id=election.id) }}">
                     <div class="mb-2"><input type="text" name="name" placeholder="Candidate Name" class="form-control form-control-sm" required></div>
