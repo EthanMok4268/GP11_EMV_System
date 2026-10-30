@@ -9,7 +9,7 @@ from .auth import admin_required, login_required
 from .db import get_db
 from .services import (
     change_candidate, confirm_election as confirm_election_service, get_election_status,
-    delete_closed_election, update_election_details, validate_election_parameters,
+    delete_closed_election, update_election_details, update_voter_eligibility, validate_election_parameters,
 )
 
 bp = Blueprint("admin", __name__)
@@ -155,13 +155,9 @@ def delete_candidate(election_id, cand_id):
 def update_voter_status(election_id, voter_id):
     new_status = request.form.get("status")
     if new_status in ("APPROVED", "REJECTED"):
-        with get_db():
-            database.update_voter_status(election_id, voter_id, new_status)
-            database.log_audit(
-                session["user_id"],
-                f"Set Voter ID {voter_id} eligibility to {new_status} for Election ID {election_id}",
-            )
-        flash(f"Voter eligibility updated to {new_status}.", "success")
+        return _admin_action(
+            election_id, update_voter_eligibility, voter_id=voter_id, status=new_status,
+        )
     return redirect(url_for("elections.view_election", election_id=election_id))
 
 

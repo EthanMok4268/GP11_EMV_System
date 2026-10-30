@@ -21,9 +21,16 @@ def request_participation(election_id):
         with get_db() as db:
             db.execute("BEGIN IMMEDIATE")
             election = database.find_election(election_id)
-            if session.get("role") != "VOTER" or not election or get_election_status(election) == "DRAFT":
+            if not election:
+                flash("Election not found.", "danger")
+                return redirect(url_for("elections.dashboard"))
+            status = get_election_status(election)
+            if session.get("role") != "VOTER" or status == "DRAFT":
                 flash("Participation is not available for this election.", "danger")
                 return redirect(url_for("elections.dashboard"))
+            if status not in ("UPCOMING", "ACTIVE"):
+                flash("Participation requests are closed for this election.", "danger")
+                return redirect(url_for("elections.view_election", election_id=election_id))
             database.create_participation(election_id, session["user_id"])
         flash("Participation request submitted. Waiting for administrator approval.", "success")
     except sqlite3.IntegrityError:

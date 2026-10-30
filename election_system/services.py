@@ -88,6 +88,26 @@ def update_election_details(election_id, admin_id, title, description, start_tim
 
 
 # -------------------------------------------------------------------------
+# UPDATE VOTER ELIGIBILITY & ITS AUDIT BEFORE ELECTION CLOSURE
+# -------------------------------------------------------------------------
+def update_voter_eligibility(election_id, admin_id, voter_id, status):
+    """Recheck closure after obtaining the write lock and commit the decision with its audit."""
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        election = database.find_election(election_id)
+        if election is None:
+            raise LookupError("Election not found.")
+        if get_election_status(election) == "CLOSED":
+            raise ValueError("Voter eligibility cannot be changed after this election has closed.")
+        database.update_voter_status(election_id, voter_id, status)
+        database.log_audit(
+            admin_id,
+            f"Set Voter ID {voter_id} eligibility to {status} for Election ID {election_id}",
+        )
+    return f"Voter eligibility updated to {status}.", "success"
+
+
+# -------------------------------------------------------------------------
 # SIGN FORM SNAPSHOTS & CONFIRM A COMPLETE CANDIDATE ROSTER
 # -------------------------------------------------------------------------
 def _form_serializer(purpose):

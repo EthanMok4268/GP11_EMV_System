@@ -75,13 +75,13 @@
             <div class="card-header fw-bold">Candidates & Ballot</div>
             <div class="card-body">
                 {% if session['role'] == 'VOTER' %}
-                    {% if not participation %}
+                    {% if participation %}
+                        <p>Your Eligibility Status: <strong>{{ participation.status }}</strong></p>
+                    {% elif status in ('UPCOMING', 'ACTIVE') %}
                         <div class="alert alert-info">You must request eligibility approval before voting in this election.</div>
                         <form method="POST" action="{{ url_for('voting.request_participation', election_id=election.id) }}">
                             <button class="btn btn-primary">Request Participation</button>
                         </form>
-                    {% else %}
-                        <p>Your Eligibility Status: <strong>{{ participation.status }}</strong></p>
                     {% endif %}
                 {% endif %}
 
@@ -216,6 +216,11 @@
 
         <div class="card shadow-sm">
             <div class="card-header fw-bold">Voter Eligibility Management</div>
+            {% if status == 'CLOSED' %}
+            <div class="card-body py-2">
+                <p class="text-muted small mb-0">This election is closed. Voter eligibility can no longer be changed.</p>
+            </div>
+            {% endif %}
             <ul class="list-group list-group-flush">
                 {% for req in voter_requests %}
                 <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -224,7 +229,7 @@
                         <span class="badge bg-secondary ms-1">{{ req.status }}</span>
                         {% if req.has_voted %}<span class="badge bg-success">Voted</span>{% endif %}
                     </div>
-                    {% if not req.has_voted %}
+                    {% if status != 'CLOSED' and not req.has_voted %}
                     <form method="POST" action="{{ url_for('admin.update_voter_status', election_id=election.id, voter_id=req.voter_id) }}" class="d-inline">
                         <button name="status" value="APPROVED" class="btn btn-xs btn-success btn-sm">Approve</button>
                         <button name="status" value="REJECTED" class="btn btn-xs btn-danger btn-sm">Reject</button>
