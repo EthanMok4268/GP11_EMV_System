@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+{% block head %}
+{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='election-deletion.css') }}">
+<script src="{{ url_for('static', filename='election-deletion.js') }}" defer></script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<a href="{{ url_for('elections.dashboard') }}" class="btn btn-sm btn-secondary mb-3">&larr; Back to Elections</a>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+       <div class="d-flex justify-content-between align-items-center">
+            <h3>{{ election.title }}</h3>
+            <div>
+                <span class="badge {% if status == 'DRAFT' %}bg-primary{% elif status == 'UPCOMING' %}bg-warning text-dark{% elif status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
+                {% if session['role'] == 'ADMIN' and status == 'ACTIVE' %}
+                <form method="POST" action="{{ url_for('admin.close_election_early', election_id=election.id) }}" class="d-inline ms-2" onsubmit="return confirm('Are you sure you want to end this election early and publish results?');">
+                    <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
+                </form>
+                {% endif %}
+                {% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+                <button type="button" id="open-election-deletion" class="btn btn-sm btn-danger ms-2" aria-haspopup="dialog" aria-controls="election-deletion-dialog" disabled>Delete Election</button>
+                <noscript><p class="text-danger small mt-2 mb-0">JavaScript is required to confirm election deletion.</p></noscript>
+                {% endif %}
+            </div>
+        </div>
+        <p class="text-muted mb-1">{{ election.description }}</p>
+        <small class="text-secondary">Start: {{ election.start_time }} | End: {{ election.end_time }}</small>
+    </div>
+</div>
+
+{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+<dialog id="election-deletion-dialog" class="election-deletion-dialog border-0 rounded shadow p-0" aria-labelledby="election-deletion-title" aria-describedby="election-deletion-warning election-deletion-audit">
+    <form method="POST" action="{{ url_for('admin.delete_election', election_id=election.id) }}" id="election-deletion-form">
+        <input type="hidden" name="deletion_token" value="{{ deletion_token }}">
+        <div class="modal-header p-3 border-bottom">
+            <h4 class="modal-title fs-5" id="election-deletion-title">Delete Election</h4>
+            <button type="button" class="btn-close" data-cancel-deletion aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-3">
+            <p>Delete <strong>{{ election.title }}</strong>?</p>
+            <p id="election-deletion-warning" class="text-danger fw-bold">All election settings, candidates, ballots, results, and participation records will be permanently deleted. This cannot be undone.</p>
+            <p id="election-deletion-audit" class="mb-0">Administrative audit logs will be retained, and this deletion will be recorded.</p>
+        </div>
+        <div class="modal-footer p-3 border-top gap-2">
+            <button type="button" class="btn btn-secondary" data-cancel-deletion autofocus>Cancel</button>
+            <button type="submit" class="btn btn-danger" name="confirmed" value="yes" id="confirm-election-deletion" disabled>Confirm Deletion</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-7">
+        {% if status == 'CLOSED' %}
+        <div class="card shadow-sm mb-4 border-success">
+            <div class="card-header bg-success text-white fw-bold">Official Published Results (Total Votes: {{ total_votes }})</div>
+            <div class="card-body">
+                {% for r in results %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between fw-bold">
+                        <span>{{ r.name }}</span>
+                        <span>{{ r.votes }} votes ({{ (r.votes / total_votes * 100)|round(1) if total_votes > 0 else 0 }}%)</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ (r.votes / total_votes * 100) if total_votes > 0 else 0 }}%"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Candidates & Ballot</div>
+            <div class="card-body">
+                {% if session['role'] == 'VOTER' %}
+                    {% if participation %}
+                        <p>Your Eligibility Status: <strong>{{ participation.status }}</strong></p>
+                    {% elif status in ('UPCOMING', 'ACTIVE') %}
+                        <div class="alert alert-info">You must request eligibility approval before voting in this election.</div>
+                        <form method="POST" action="{{ url_for('voting.request_participation', election_id=election.id) }}">
+                            <button class="btn btn-primary">Request Participation</button>
+                        </form>
+                    {% endif %}
+                {% endif %}
+
+                {% if session['role'] == 'VOTER' %}
+                <form method="POST" action="{{ url_for('voting.cast_vote', election_id=election.id) }}">
+                {% endif %}
+                    {% for c in candidates %}
+                    <div class="border rounded p-3 mb-2">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                        <div class="form-check">
+                            {% if session['role'] == 'VOTER' and status == 'ACTIVE' and participation and participation.status == 'APPROVED' and not participation.has_voted %}
+                            <input class="form-check-input" type="radio" name="candidate_id" value="{{ c.id }}" id="c{{ c.id }}" required>
+                            {% endif %}
+                            <label class="form-check-label fw-bold" for="c{{ c.id }}">{{ c.name }}</label>
+                            <div class="text-muted small">{{ c.manifesto }}</div>
+                        </div>
+                        {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING') %}
+                        <form method="POST" action="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="m-0">
+                            <button type="submit" formaction="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="btn btn-sm btn-outline-danger">Remove</button>
+                        </form>
+                        {% endif %}
+                        </div>
+                        {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING') %}
+                        <details class="mt-2">
+                            <summary class="text-primary">Edit</summary>
+                            <form method="POST" action="{{ url_for('admin.update_candidate', election_id=election.id, cand_id=c.id) }}" class="mt-3">
+                                <input type="hidden" name="edit_token" value="{{ candidate_tokens[c.id] }}">
+                                <div class="mb-2">
+                                    <label for="candidate-name-{{ c.id }}" class="form-label small">Candidate Name</label>
+                                    <input id="candidate-name-{{ c.id }}" name="name" value="{{ c.name }}" class="form-control form-control-sm" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="candidate-manifesto-{{ c.id }}" class="form-label small">Manifesto / Bio</label>
+                                    <textarea id="candidate-manifesto-{{ c.id }}" name="manifesto" rows="3" class="form-control form-control-sm" required>{{ c.manifesto or '' }}</textarea>
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-primary">Save Candidate</button>
+                            </form>
+                        </details>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No candidates registered yet.</p>
+                    {% endfor %}
+
+                    {% if session['role'] == 'VOTER' and status == 'ACTIVE' and participation and participation.status == 'APPROVED' %}
+                        {% if participation.has_voted %}
+                            <div class="alert alert-success mt-3 mb-0">✔ You have already cast your ballot in this election.</div>
+                        {% elif candidates %}
+                            <button type="submit" class="btn btn-success w-100 mt-3">Confirm & Submit Anonymous Ballot</button>
+                        {% endif %}
+                    {% endif %}
+                {% if session['role'] == 'VOTER' %}
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if session['role'] == 'ADMIN' %}
+    <div class="col-md-5">
+        {% if status in ('DRAFT', 'UPCOMING') %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Election Readiness</div>
+            <div class="card-body">
+                <p>Candidates: <strong>{{ candidates|length }}</strong> (at least 2 required)</p>
+                {% if status == 'DRAFT' %}
+                <p class="text-muted small">This draft is visible only to administrators. Prepare the complete roster, then confirm the election to start voting or keep its scheduled start.</p>
+                {% if readiness_issues %}
+                <ul class="small text-danger">
+                    {% for issue in readiness_issues %}<li>{{ issue }}</li>{% endfor %}
+                </ul>
+                {% endif %}
+                <form method="POST" action="{{ url_for('admin.confirm_election', election_id=election.id) }}">
+                    <input type="hidden" name="confirmation_token" value="{{ confirmation_token }}">
+                    <button type="submit" class="btn btn-success btn-sm w-100"{% if readiness_issues %} disabled{% endif %}>Confirm Election</button>
+                </form>
+                {% else %}
+                <p class="text-muted small mb-0">The roster is confirmed. Voting will begin at the scheduled time. Changing candidates returns this election to draft and requires confirmation again.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Edit Election</div>
+            <div class="card-body">
+                {% if status in ('DRAFT', 'UPCOMING', 'ACTIVE') %}
+                {% if status == 'ACTIVE' %}
+                <p class="text-muted small" id="edit-election-time-help">Voting has started. The start time is locked, and the end time can only stay the same or be extended.</p>
+                {% elif status == 'UPCOMING' %}
+                <p class="text-muted small" id="edit-election-time-help">The start time must remain in the future.</p>
+                {% else %}
+                <p class="text-muted small" id="edit-election-time-help">Prepare this draft and update its schedule before confirming. An expired draft can be rescheduled.</p>
+                {% endif %}
+                <form method="POST" action="{{ url_for('admin.update_election', election_id=election.id) }}">
+                    <div class="mb-2">
+                        <label for="edit-election-title" class="form-label small">Title</label>
+                        <input id="edit-election-title" type="text" name="title" value="{{ election.title }}" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="mb-2">
+                        <label for="edit-election-description" class="form-label small">Description</label>
+                        <textarea id="edit-election-description" name="description" rows="3" class="form-control form-control-sm">{{ election.description or '' }}</textarea>
+                    </div>
+                    <div class="mb-2">
+                        <label for="edit-election-start" class="form-label small">Start Time</label>
+                        <input id="edit-election-start" type="datetime-local" name="start_time" value="{{ election.start_time }}" class="form-control form-control-sm" aria-describedby="edit-election-time-help" required{% if status == 'ACTIVE' %} readonly{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit-election-end" class="form-label small">End Time</label>
+                        <input id="edit-election-end" type="datetime-local" name="end_time" value="{{ election.end_time }}" class="form-control form-control-sm" aria-describedby="edit-election-time-help" required{% if status == 'ACTIVE' %} min="{{ election.end_time }}"{% endif %}>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Save Changes</button>
+                </form>
+                {% else %}
+                <p class="text-muted small mb-0">This election is closed. Election settings are locked.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if status in ('DRAFT', 'UPCOMING') %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Add Candidate (Before Voting Starts)</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.add_candidate', election_id=election.id) }}">
+                    <div class="mb-2"><input type="text" name="name" placeholder="Candidate Name" class="form-control form-control-sm" required></div>
+                    <div class="mb-2"><input type="text" name="manifesto" placeholder="Manifesto / Bio" class="form-control form-control-sm" required></div>
+                    <button class="btn btn-sm btn-primary w-100">Add Candidate</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">Voter Eligibility Management</div>
+            {% if status == 'CLOSED' %}
+            <div class="card-body py-2">
+                <p class="text-muted small mb-0">This election is closed. Voter eligibility can no longer be changed.</p>
+            </div>
+            {% endif %}
+            <ul class="list-group list-group-flush">
+                {% for req in voter_requests %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ req.username }}</strong>
+                        <span class="badge bg-secondary ms-1">{{ req.status }}</span>
+                        {% if req.has_voted %}<span class="badge bg-success">Voted</span>{% endif %}
+                    </div>
+                    {% if status != 'CLOSED' and not req.has_voted %}
+                    <form method="POST" action="{{ url_for('admin.update_voter_status', election_id=election.id, voter_id=req.voter_id) }}" class="d-inline">
+                        <button name="status" value="APPROVED" class="btn btn-xs btn-success btn-sm">Approve</button>
+                        <button name="status" value="REJECTED" class="btn btn-xs btn-danger btn-sm">Reject</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted small">No participation requests yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

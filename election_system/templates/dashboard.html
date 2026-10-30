@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <h3 class="mb-3">Elections</h3>
+        {% for item in elections %}
+        <div class="card mb-3 shadow-sm">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-1">{{ item.row.title }}</h5>
+                    <p class="text-muted small mb-1">{{ item.row.description }}</p>
+                    <small class="text-secondary">🕒 {{ item.row.start_time }} to {{ item.row.end_time }}</small>
+                    {% if session['role'] == 'VOTER' and item.part %}
+                        <div class="mt-1">
+                            <span class="badge bg-info text-dark">Eligibility: {{ item.part.status }}</span>
+                            {% if item.part.has_voted %}<span class="badge bg-success">Voted ✔</span>{% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="text-end">
+                    <span class="badge {% if item.status == 'DRAFT' %}bg-primary{% elif item.status == 'UPCOMING' %}bg-warning text-dark{% elif item.status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %} d-block mb-2">
+                        {{ item.status }}
+                    </span>
+                    <a href="{{ url_for('elections.view_election', election_id=item.row.id) }}" class="btn btn-sm btn-outline-primary">Open Election</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if session['role'] == 'ADMIN' %}
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white fw-bold">Create New Election</div>
+            <div class="card-body">
+                <p class="text-muted small">New elections are private drafts. Add at least two candidates with complete manifestos, then confirm the election.</p>
+                <form method="POST" action="{{ url_for('admin.create_election') }}">
+                    <div class="mb-2"><label class="form-label small">Title</label><input type="text" name="title" class="form-control form-control-sm" required></div>
+                    <div class="mb-2"><label class="form-label small">Description</label><textarea name="description" class="form-control form-control-sm"></textarea></div>
+                    <div class="mb-2"><label class="form-label small">Start Time</label><input type="datetime-local" name="start_time" class="form-control form-control-sm" required></div>
+                    <div class="mb-3"><label class="form-label small">End Time</label><input type="datetime-local" name="end_time" class="form-control form-control-sm" required></div>
+                    <button class="btn btn-primary btn-sm w-100">Create Election</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white fw-bold">Administrative Audit Log</div>
+            <ul class="list-group list-group-flush small">
+                {% for log in audit_logs %}
+                <li class="list-group-item">
+                    <strong>{{ log.username }}</strong>: {{ log.action }}
+                    <div class="text-muted" style="font-size:0.75rem;">{{ log.timestamp }}</div>
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted">No admin actions recorded yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
