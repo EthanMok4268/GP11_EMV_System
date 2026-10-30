@@ -86,6 +86,40 @@
 
     {% if session['role'] == 'ADMIN' %}
     <div class="col-md-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Edit Election</div>
+            <div class="card-body">
+                {% if status in ('UPCOMING', 'ACTIVE') %}
+                {% if status == 'ACTIVE' %}
+                <p class="text-muted small" id="edit-election-time-help">Voting has started. The start time is locked, and the end time can only stay the same or be extended.</p>
+                {% else %}
+                <p class="text-muted small" id="edit-election-time-help">The start time must remain in the future.</p>
+                {% endif %}
+                <form method="POST" action="{{ url_for('admin.update_election', election_id=election.id) }}">
+                    <div class="mb-2">
+                        <label for="edit-election-title" class="form-label small">Title</label>
+                        <input id="edit-election-title" type="text" name="title" value="{{ election.title }}" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="mb-2">
+                        <label for="edit-election-description" class="form-label small">Description</label>
+                        <textarea id="edit-election-description" name="description" rows="3" class="form-control form-control-sm">{{ election.description or '' }}</textarea>
+                    </div>
+                    <div class="mb-2">
+                        <label for="edit-election-start" class="form-label small">Start Time</label>
+                        <input id="edit-election-start" type="datetime-local" name="start_time" value="{{ election.start_time }}" class="form-control form-control-sm" aria-describedby="edit-election-time-help" required{% if status == 'ACTIVE' %} readonly{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit-election-end" class="form-label small">End Time</label>
+                        <input id="edit-election-end" type="datetime-local" name="end_time" value="{{ election.end_time }}" class="form-control form-control-sm" aria-describedby="edit-election-time-help" required{% if status == 'ACTIVE' %} min="{{ election.end_time }}"{% endif %}>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Save Changes</button>
+                </form>
+                {% else %}
+                <p class="text-muted small mb-0">This election is closed. Election settings are locked.</p>
+                {% endif %}
+            </div>
+        </div>
+
         {% if status == 'UPCOMING' %}
         <div class="card shadow-sm mb-4">
             <div class="card-header fw-bold">Add Candidate (Allowed while UPCOMING)</div>

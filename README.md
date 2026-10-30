@@ -9,13 +9,27 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 ### 1. Functional Capabilities
 * **User Registration & Authentication:** Voter self-registration and secure credential validation for both Administrators and Voters.
 * **Role-Based Access Control (RBAC):** Strict separation between Administrator management functions and Voter participation interfaces.
-* **Election Lifecycle Management:** Administrators can create elections with configured start and end timestamps. The system automatically transitions elections between `UPCOMING`, `ACTIVE`, and `CLOSED` states.
+* **Election Lifecycle Management:** Administrators can create and edit elections with configured start and end timestamps. The system automatically transitions elections between `UPCOMING`, `ACTIVE`, and `CLOSED` states, with editing permissions based on the current state.
 * **Early Election Closure:** Administrators can end an active election early, publish results immediately, and record the action in the audit log.
 * **Candidate Management Constraints:** Administrators can add or remove candidates **only** while an election is in the `UPCOMING` state. Candidate lists lock automatically once voting begins.
 * **Voter Eligibility Workflow:** Voters can request participation in specific elections (`PENDING`), and Administrators can approve (`APPROVED`) or reject (`REJECTED`) eligibility requests.
 * **Electronic Voting & Duplicate Prevention:** Approved voters can cast exactly one ballot during an `ACTIVE` election and receive an immediate confirmation receipt ID.
 * **Automated Vote Counting & Publication:** Tallies and percentages remain sealed during active voting and are automatically calculated and published once the election reaches the `CLOSED` state.
-* **Administrative Audit Trail:** Records key administrative actions (election creation, candidate updates, and voter eligibility approvals) with timestamps.
+* **Administrative Audit Trail:** Records election creation and edits, candidate additions/removals, voter eligibility decisions, and early closure with timestamps. Election edits include the previous and new field values and are committed together with their audit entry.
+
+### Election Editing Rules
+
+Administrators can open an election and use the **Edit Election** panel. The form is prefilled with the current details.
+
+| Current state | Editable fields |
+| :--- | :--- |
+| `UPCOMING` | Title, description, start time, and end time |
+| `ACTIVE` | Title, description, and end time; the start time is locked and the end time may only stay the same or be extended |
+| `CLOSED` | None; election settings are locked |
+
+The title must contain non-whitespace text; the description may be empty. Both times must be valid dates in `YYYY-MM-DDTHH:MM` format, with the start before the end. When editing an upcoming election, the start time must remain in the future. Closed elections cannot be reopened through editing. The existing **End Election Early** action remains available for active elections.
+
+Edits use the administrator-only POST route `/admin/election/<election_id>/update` with `title`, `description`, `start_time`, and `end_time` fields. The backend acquires a SQLite write lock (`BEGIN IMMEDIATE`) before reloading the election and applying the state rules. A stale form cannot shorten a more recently extended end time or overwrite an election that has already closed. The edit and its audit entry are committed or rolled back together; candidates, participation requests, and accepted ballots are preserved. Submitting unchanged values does not create an audit entry.
 
 ### 2. Non-Functional & Privacy Architecture
 * **Ballot Secrecy (Privacy by Design):** Voter participation status (`voter_participation` table) and actual candidate choices (`ballots` table) are stored in separate tables. The `ballots` table uses random UUIDs (`UUID v4`) and omits voter foreign keys and timestamps to prevent identity correlation.
@@ -116,7 +130,7 @@ When started for the first time, the system automatically seeds a sample active 
 
 | Role | Username | Password | Capabilities |
 | :--- | :--- | :--- | :--- |
-| **Administrator** | `admin` | `admin123` | Create elections, manage candidates, approve/reject voters, view audit logs |
+| **Administrator** | `admin` | `admin123` | Create and edit elections, manage candidates, approve/reject voters, view audit logs |
 | **Voter** | `voter1` | `voter123` | Request election participation, view candidates, cast anonymous ballot |
 
 ### Quick Demo Walkthrough
@@ -125,11 +139,15 @@ When started for the first time, the system automatically seeds a sample active 
 3. Log out and sign back in as **`voter1`**. Select a candidate and click **Confirm & Submit Anonymous Ballot**.
 4. Try submitting another vote or re-visiting the page to see duplicate-voting prevention in action.
 
+To try election editing, sign in as **admin** and open an election. The active demo election allows title and description changes and an extended end time. Create an election starting in the future to edit all four fields in the **Edit Election** panel. Once an election closes, the panel displays a locked message.
+
 ---
 
 ## 🧪 Running Automated Tests
 
 The automated test suite (`test_app.py`) uses temporary SQLite databases to verify authentication, role-based access, election and candidate management, template escaping, result visibility, atomic voting, duplicate prevention, database reinitialization, and early election closure.
+
+Election-edit tests cover state-specific permissions and form controls, date and title validation, administrator-only POST access, stale end times, state changes while waiting for a write lock, audit failure rollback, and preservation of candidates, participation requests, and ballots.
 
 Run the test suite from your terminal:
 ```powershell

@@ -1,4 +1,5 @@
 """Administrator election, candidate, and eligibility routes."""
+import sqlite3
 from datetime import datetime, timedelta
 
 from flask import Blueprint, flash, redirect, request, session, url_for
@@ -6,7 +7,7 @@ from flask import Blueprint, flash, redirect, request, session, url_for
 from . import db as database
 from .auth import admin_required, login_required
 from .db import get_db
-from .services import get_election_status
+from .services import get_election_status, update_election_details, validate_election_parameters
 
 bp = Blueprint("admin", __name__)
 
@@ -18,19 +19,49 @@ bp = Blueprint("admin", __name__)
 @login_required
 @admin_required
 def create_election():
-    title = request.form.get("title", "").strip()
-    description = request.form.get("description", "").strip()
-    start_time = request.form.get("start_time", "")
-    end_time = request.form.get("end_time", "")
-    if not title or not start_time or not end_time or start_time >= end_time:
-        flash("Invalid election parameters. Ensure start time is before end time.", "danger")
+    try:
+        values = validate_election_parameters(
+            request.form.get("title", ""), request.form.get("description", ""),
+            request.form.get("start_time", ""), request.form.get("end_time", ""),
+        )
+    except ValueError as error:
+        flash(str(error), "danger")
         return redirect(url_for("elections.dashboard"))
 
-    with get_db():
-        election_id = database.create_election(title, description, start_time, end_time)
-        database.log_audit(session["user_id"], f"Created election '{title}' (ID: {election_id})")
+    try:
+        with get_db():
+            election_id = database.create_election(**values)
+            database.log_audit(session["user_id"], f"Created election '{values['title']}' (ID: {election_id})")
+    except sqlite3.Error:
+        flash("Unable to create the election. Changes were rolled back. Please try again.", "danger")
+        return redirect(url_for("elections.dashboard"))
     flash("Election created successfully.", "success")
     return redirect(url_for("elections.dashboard"))
+
+
+# -------------------------------------------------------------------------
+# ROUTES: EDIT ELECTION DETAILS
+# -------------------------------------------------------------------------
+@bp.route("/admin/election/<int:election_id>/update", methods=["POST"])
+@login_required
+@admin_required
+def update_election(election_id):
+    try:
+        message, category = update_election_details(
+            election_id, session["user_id"],
+            request.form.get("title", ""), request.form.get("description", ""),
+            request.form.get("start_time", ""), request.form.get("end_time", ""),
+        )
+    except LookupError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("elections.dashboard"))
+    except ValueError as error:
+        message, category = str(error), "danger"
+    except sqlite3.Error:
+        message = "Unable to update the election. Changes were rolled back. Please try again."
+        category = "danger"
+    flash(message, category)
+    return redirect(url_for("elections.view_election", election_id=election_id))
 
 
 # -------------------------------------------------------------------------

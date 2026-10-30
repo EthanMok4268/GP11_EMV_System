@@ -239,6 +239,13 @@ def create_election(title, description, start_time, end_time):
     return cursor.lastrowid
 
 
+def update_election(election_id, title, description, start_time, end_time):
+    get_db().execute(
+        "UPDATE elections SET title = ?, description = ?, start_time = ?, end_time = ? WHERE id = ?",
+        (title, description, start_time, end_time, election_id),
+    )
+
+
 def add_candidate(election_id, name, manifesto):
     get_db().execute(
         "INSERT INTO candidates (election_id, name, manifesto) VALUES (?, ?, ?)", (election_id, name, manifesto)
