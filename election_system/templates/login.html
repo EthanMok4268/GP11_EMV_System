@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h4 class="card-title mb-3">Sign In</h4>
+                <form method="POST">
+                    <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required></div>
+                    <div class="mb-3"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
+                    <button class="btn btn-primary w-100">Login</button>
+                </form>
+                <hr>
+                <p class="mb-1 text-muted small"><strong>Demo Accounts:</strong><br>Admin: <code>admin</code> / <code>admin123</code><br>Voter: <code>voter1</code> / <code>voter123</code></p>
+                <a href="{{ url_for('auth.register') }}" class="d-block text-center mt-3">Register a new voter account</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

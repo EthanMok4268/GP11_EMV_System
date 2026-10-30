@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% block content %}
+<a href="{{ url_for('elections.dashboard') }}" class="btn btn-sm btn-secondary mb-3">&larr; Back to Elections</a>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+       <div class="d-flex justify-content-between align-items-center">
+            <h3>{{ election.title }}</h3>
+            <div>
+                <span class="badge {% if status == 'ACTIVE' %}bg-success{% elif status == 'UPCOMING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
+                {% if session['role'] == 'ADMIN' and status == 'ACTIVE' %}
+                <form method="POST" action="{{ url_for('admin.close_election_early', election_id=election.id) }}" class="d-inline ms-2" onsubmit="return confirm('Are you sure you want to end this election early and publish results?');">
+                    <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        <p class="text-muted mb-1">{{ election.description }}</p>
+        <small class="text-secondary">Start: {{ election.start_time }} | End: {{ election.end_time }}</small>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-7">
+        {% if status == 'CLOSED' %}
+        <div class="card shadow-sm mb-4 border-success">
+            <div class="card-header bg-success text-white fw-bold">Official Published Results (Total Votes: {{ total_votes }})</div>
+            <div class="card-body">
+                {% for r in results %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between fw-bold">
+                        <span>{{ r.name }}</span>
+                        <span>{{ r.votes }} votes ({{ (r.votes / total_votes * 100)|round(1) if total_votes > 0 else 0 }}%)</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ (r.votes / total_votes * 100) if total_votes > 0 else 0 }}%"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Candidates & Ballot</div>
+            <div class="card-body">
+                {% if session['role'] == 'VOTER' %}
+                    {% if not participation %}
+                        <div class="alert alert-info">You must request eligibility approval before voting in this election.</div>
+                        <form method="POST" action="{{ url_for('voting.request_participation', election_id=election.id) }}">
+                            <button class="btn btn-primary">Request Participation</button>
+                        </form>
+                    {% else %}
+                        <p>Your Eligibility Status: <strong>{{ participation.status }}</strong></p>
+                    {% endif %}
+                {% endif %}
+
+                <form method="POST" action="{{ url_for('voting.cast_vote', election_id=election.id) }}">
+                    {% for c in candidates %}
+                    <div class="border rounded p-3 mb-2 d-flex justify-content-between align-items-center">
+                        <div class="form-check">
+                            {% if session['role'] == 'VOTER' and status == 'ACTIVE' and participation and participation.status == 'APPROVED' and not participation.has_voted %}
+                            <input class="form-check-input" type="radio" name="candidate_id" value="{{ c.id }}" id="c{{ c.id }}" required>
+                            {% endif %}
+                            <label class="form-check-label fw-bold" for="c{{ c.id }}">{{ c.name }}</label>
+                            <div class="text-muted small">{{ c.manifesto }}</div>
+                        </div>
+                        {% if session['role'] == 'ADMIN' and status == 'UPCOMING' %}
+                        <button type="submit" formaction="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="btn btn-sm btn-outline-danger" formnovalidate>Remove</button>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No candidates registered yet.</p>
+                    {% endfor %}
+
+                    {% if session['role'] == 'VOTER' and status == 'ACTIVE' and participation and participation.status == 'APPROVED' %}
+                        {% if participation.has_voted %}
+                            <div class="alert alert-success mt-3 mb-0">✔ You have already cast your ballot in this election.</div>
+                        {% elif candidates %}
+                            <button type="submit" class="btn btn-success w-100 mt-3">Confirm & Submit Anonymous Ballot</button>
+                        {% endif %}
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {% if session['role'] == 'ADMIN' %}
+    <div class="col-md-5">
+        {% if status == 'UPCOMING' %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">Add Candidate (Allowed while UPCOMING)</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.add_candidate', election_id=election.id) }}">
+                    <div class="mb-2"><input type="text" name="name" placeholder="Candidate Name" class="form-control form-control-sm" required></div>
+                    <div class="mb-2"><input type="text" name="manifesto" placeholder="Manifesto / Bio" class="form-control form-control-sm" required></div>
+                    <button class="btn btn-sm btn-primary w-100">Add Candidate</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">Voter Eligibility Management</div>
+            <ul class="list-group list-group-flush">
+                {% for req in voter_requests %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ req.username }}</strong>
+                        <span class="badge bg-secondary ms-1">{{ req.status }}</span>
+                        {% if req.has_voted %}<span class="badge bg-success">Voted</span>{% endif %}
+                    </div>
+                    {% if not req.has_voted %}
+                    <form method="POST" action="{{ url_for('admin.update_voter_status', election_id=election.id, voter_id=req.voter_id) }}" class="d-inline">
+                        <button name="status" value="APPROVED" class="btn btn-xs btn-success btn-sm">Approve</button>
+                        <button name="status" value="REJECTED" class="btn btn-xs btn-danger btn-sm">Reject</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted small">No participation requests yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

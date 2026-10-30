@@ -10,6 +10,7 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 * **User Registration & Authentication:** Voter self-registration and secure credential validation for both Administrators and Voters.
 * **Role-Based Access Control (RBAC):** Strict separation between Administrator management functions and Voter participation interfaces.
 * **Election Lifecycle Management:** Administrators can create elections with configured start and end timestamps. The system automatically transitions elections between `UPCOMING`, `ACTIVE`, and `CLOSED` states.
+* **Early Election Closure:** Administrators can end an active election early, publish results immediately, and record the action in the audit log.
 * **Candidate Management Constraints:** Administrators can add or remove candidates **only** while an election is in the `UPCOMING` state. Candidate lists lock automatically once voting begins.
 * **Voter Eligibility Workflow:** Voters can request participation in specific elections (`PENDING`), and Administrators can approve (`APPROVED`) or reject (`REJECTED`) eligibility requests.
 * **Electronic Voting & Duplicate Prevention:** Approved voters can cast exactly one ballot during an `ACTIVE` election and receive an immediate confirmation receipt ID.
@@ -52,12 +53,29 @@ flowchart TD
 
 ```text
 GP11_EMV_System/
-├── app.py               # Main Flask application, database schema, and UI templates
-├── test_app.py          # Automated Pytest validation suite (RBAC, eligibility, duplicate voting)
-├── requirements.txt     # Python package dependencies
-└── README.md            # Project documentation
+├── app.py                        # Development entry point
+├── election_system/
+│   ├── __init__.py               # Application factory and configuration
+│   ├── auth.py                   # Authentication, registration and access checks
+│   ├── elections.py              # Dashboard and election details
+│   ├── voting.py                 # Participation and ballot submission
+│   ├── admin.py                  # Election, candidate and eligibility management
+│   ├── services.py               # Election status and atomic voting rules
+│   ├── db.py                     # SQLite schema, connections, demo data and queries
+│   └── templates/                # Shared layout and page templates
+├── test_app.py                   # Automated Pytest suite
+├── project_dependencies.txt      # Python package dependencies
+└── README.md                     # Project documentation
 ```
-*(Note: `election_system.db` is automatically generated and seeded with demo data on first run.)*
+
+The database defaults to `election_system.db` in the current working directory. Running `python app.py` initializes missing tables and seeds demo data only when no users exist. Existing databases remain compatible without migration. Tests use `create_app({"TESTING": True, "DATABASE": ...})` to create isolated application instances.
+
+### Naming and organization conventions
+
+- Use `snake_case` for Python modules, functions, variables and template filenames, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants.
+- Keep related database operations together in `db.py`; route modules handle HTTP requests and services handle election and voting rules. Data helpers leave commits and rollbacks to their callers.
+- Reuse the original section comments and add matching headings for new functional sections.
+- Keep public URLs and database identifiers stable unless a change and migration are explicitly planned.
 
 ---
 
@@ -81,7 +99,7 @@ py -m venv .venv
 
 ### Step 3: Install Dependencies
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -r project_dependencies.txt
 ```
 
 ### Step 4: Run the Application
@@ -111,7 +129,7 @@ When started for the first time, the system automatically seeds a sample active 
 
 ## 🧪 Running Automated Tests
 
-The repository includes an automated test suite (`test_app.py`) verifying role-based access control, unapproved voter blocking, valid ballot recording, and duplicate vote prevention.
+The automated test suite (`test_app.py`) uses temporary SQLite databases to verify authentication, role-based access, election and candidate management, template escaping, result visibility, atomic voting, duplicate prevention, database reinitialization, and early election closure.
 
 Run the test suite from your terminal:
 ```powershell
