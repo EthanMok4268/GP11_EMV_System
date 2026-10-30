@@ -1,4 +1,10 @@
 {% extends 'base.html' %}
+{% block head %}
+{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='election-deletion.css') }}">
+<script src="{{ url_for('static', filename='election-deletion.js') }}" defer></script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <a href="{{ url_for('elections.dashboard') }}" class="btn btn-sm btn-secondary mb-3">&larr; Back to Elections</a>
 <div class="card shadow-sm mb-4">
@@ -12,12 +18,37 @@
                     <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
                 </form>
                 {% endif %}
+                {% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+                <button type="button" id="open-election-deletion" class="btn btn-sm btn-danger ms-2" aria-haspopup="dialog" aria-controls="election-deletion-dialog" disabled>Delete Election</button>
+                <noscript><p class="text-danger small mt-2 mb-0">JavaScript is required to confirm election deletion.</p></noscript>
+                {% endif %}
             </div>
         </div>
         <p class="text-muted mb-1">{{ election.description }}</p>
         <small class="text-secondary">Start: {{ election.start_time }} | End: {{ election.end_time }}</small>
     </div>
 </div>
+
+{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+<dialog id="election-deletion-dialog" class="election-deletion-dialog border-0 rounded shadow p-0" aria-labelledby="election-deletion-title" aria-describedby="election-deletion-warning election-deletion-audit">
+    <form method="POST" action="{{ url_for('admin.delete_election', election_id=election.id) }}" id="election-deletion-form">
+        <input type="hidden" name="deletion_token" value="{{ deletion_token }}">
+        <div class="modal-header p-3 border-bottom">
+            <h4 class="modal-title fs-5" id="election-deletion-title">Delete Election</h4>
+            <button type="button" class="btn-close" data-cancel-deletion aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-3">
+            <p>Delete <strong>{{ election.title }}</strong>?</p>
+            <p id="election-deletion-warning" class="text-danger fw-bold">All election settings, candidates, ballots, results, and participation records will be permanently deleted. This cannot be undone.</p>
+            <p id="election-deletion-audit" class="mb-0">Administrative audit logs will be retained, and this deletion will be recorded.</p>
+        </div>
+        <div class="modal-footer p-3 border-top gap-2">
+            <button type="button" class="btn btn-secondary" data-cancel-deletion autofocus>Cancel</button>
+            <button type="submit" class="btn btn-danger" name="confirmed" value="yes" id="confirm-election-deletion" disabled>Confirm Deletion</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
 
 <div class="row">
     <div class="col-md-7">

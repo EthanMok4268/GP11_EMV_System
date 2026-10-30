@@ -9,7 +9,7 @@ from .auth import admin_required, login_required
 from .db import get_db
 from .services import (
     change_candidate, confirm_election as confirm_election_service, get_election_status,
-    update_election_details, validate_election_parameters,
+    delete_closed_election, update_election_details, validate_election_parameters,
 )
 
 bp = Blueprint("admin", __name__)
@@ -69,6 +69,32 @@ def update_election(election_id):
         title=request.form.get("title", ""), description=request.form.get("description", ""),
         start_time=request.form.get("start_time", ""), end_time=request.form.get("end_time", ""),
     )
+
+
+# -------------------------------------------------------------------------
+# ROUTES: DELETE A CLOSED ELECTION
+# -------------------------------------------------------------------------
+@bp.route("/admin/election/<int:election_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_election(election_id):
+    destination = url_for("elections.dashboard")
+    try:
+        message, category = delete_closed_election(
+            election_id, session["user_id"], request.form.get("deletion_token", ""),
+            request.form.get("confirmed", ""),
+        )
+    except LookupError as error:
+        message, category = str(error), "danger"
+    except ValueError as error:
+        message, category = str(error), "danger"
+        destination = url_for("elections.view_election", election_id=election_id)
+    except sqlite3.Error:
+        message = "Unable to delete the election. Changes were rolled back. Please try again."
+        category = "danger"
+        destination = url_for("elections.view_election", election_id=election_id)
+    flash(message, category)
+    return redirect(destination)
 
 
 # -------------------------------------------------------------------------

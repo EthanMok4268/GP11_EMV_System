@@ -1,0 +1,8 @@
+.election-deletion-dialog {
+    width: min(32rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+}
+
+.election-deletion-dialog::backdrop {
+    background: rgb(0 0 0 / 50%);
+}

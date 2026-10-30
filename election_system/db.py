@@ -289,6 +289,10 @@ def update_election(election_id, title, description, start_time, end_time):
     )
 
 
+def delete_election(election_id):
+    get_db().execute("DELETE FROM elections WHERE id = ?", (election_id,))
+
+
 def add_candidate(election_id, name, manifesto):
     cursor = get_db().execute(
         "INSERT INTO candidates (election_id, name, manifesto) VALUES (?, ?, ?)", (election_id, name, manifesto)

@@ -4,7 +4,8 @@ from flask import Blueprint, flash, redirect, render_template, session, url_for
 from . import db as database
 from .auth import login_required
 from .services import (
-    candidate_edit_token, election_confirmation_token, election_readiness_issues, get_election_status,
+    candidate_edit_token, election_confirmation_token, election_deletion_token,
+    election_readiness_issues, get_election_status,
 )
 
 bp = Blueprint("elections", __name__)
@@ -51,7 +52,10 @@ def view_election(election_id):
     voter_requests = database.list_voter_requests(election_id) if session.get("role") == "ADMIN" else []
     candidate_tokens = {}
     confirmation_token = None
+    deletion_token = None
     readiness_issues = []
+    if session.get("role") == "ADMIN" and status == "CLOSED":
+        deletion_token = election_deletion_token(election_id, session["user_id"])
     if session.get("role") == "ADMIN" and status in ("DRAFT", "UPCOMING"):
         candidate_tokens = {candidate["id"]: candidate_edit_token(candidate) for candidate in candidates}
         if status == "DRAFT":
@@ -61,4 +65,5 @@ def view_election(election_id):
         "election_detail.html", election=election, status=status, candidates=candidates,
         participation=participation, results=results, total_votes=total_votes, voter_requests=voter_requests,
         candidate_tokens=candidate_tokens, confirmation_token=confirmation_token, readiness_issues=readiness_issues,
+        deletion_token=deletion_token,
     )

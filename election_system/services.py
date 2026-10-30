@@ -1,9 +1,10 @@
 """Election status and voting business rules."""
 import json
+import secrets
 import uuid
 from datetime import datetime
 
-from flask import current_app
+from flask import current_app, session
 from itsdangerous import BadData, URLSafeSerializer
 
 from . import db as database
@@ -123,6 +124,53 @@ def _check_form_token(token, purpose, expected):
         raise ValueError("This form is out of date. Reload the election page before saving.")
 
 
+# -------------------------------------------------------------------------
+# CONFIRM & PERMANENTLY DELETE A CLOSED ELECTION
+# -------------------------------------------------------------------------
+def _election_deletion_context(election_id, admin_id):
+    return {
+        "election_id": election_id,
+        "admin_id": admin_id,
+        "session_nonce": session.get("election_deletion_nonce"),
+    }
+
+
+def election_deletion_token(election_id, admin_id):
+    if not session.get("election_deletion_nonce"):
+        session["election_deletion_nonce"] = secrets.token_urlsafe(32)
+    return _form_serializer("election-deletion").dumps(_election_deletion_context(election_id, admin_id))
+
+
+def delete_closed_election(election_id, admin_id, deletion_token, confirmed):
+    """Delete the election, its dependent records and its deletion audit atomically."""
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        election = database.find_election(election_id)
+        if election is None:
+            raise LookupError("Election not found.")
+        if get_election_status(election) != "CLOSED":
+            raise ValueError("Only CLOSED elections can be deleted. Reload the election page.")
+        if confirmed != "yes":
+            raise ValueError("Confirm deletion in the election's deletion dialog before deleting.")
+        if not session.get("election_deletion_nonce"):
+            raise ValueError("Invalid deletion confirmation. Reload the election page before deleting.")
+        try:
+            _check_form_token(
+                deletion_token, "election-deletion", _election_deletion_context(election_id, admin_id)
+            )
+        except ValueError as error:
+            raise ValueError("Invalid deletion confirmation. Reload the election page before deleting.") from error
+        database.delete_election(election_id)
+        database.log_audit(admin_id, f"Deleted Election ID {election_id} ('{election['title']}') permanently")
+    return (
+        "Election and all associated voting data deleted permanently. Administrative audit logs were retained.",
+        "success",
+    )
+
+
+# -------------------------------------------------------------------------
+# VALIDATE READINESS & CONFIRM THE ELECTION
+# -------------------------------------------------------------------------
 def election_readiness_issues(election, candidates, now=None):
     if now is None:
         now = datetime.now().strftime("%Y-%m-%dT%H:%M")
