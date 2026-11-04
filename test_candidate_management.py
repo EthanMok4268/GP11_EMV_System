@@ -20,6 +20,7 @@ def draft(client, *, future=False, count=2):
         "title": "Private draft election", "description": "Still preparing the roster",
         "start_time": (now + timedelta(hours=2) if future else now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
         "end_time": (now + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M"),
+        "confirm_without_candidates": "yes",
     }, follow_redirects=True)
     assert b"Election created successfully" in response.data
     with client.application.app_context():

@@ -1,8 +1,10 @@
 """Administrator election, candidate, and eligibility routes."""
+import json
 import sqlite3
 from datetime import datetime, timedelta
+from itertools import zip_longest
 
-from flask import Blueprint, flash, redirect, request, session, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from . import db as database
 from .auth import admin_required, login_required
@@ -10,6 +12,7 @@ from .db import get_db
 from .services import (
     change_candidate, confirm_election as confirm_election_service, get_election_status,
     delete_closed_election, update_election_details, update_voter_eligibility, validate_election_parameters,
+    validate_candidate_parameters,
 )
 
 bp = Blueprint("admin", __name__)
@@ -33,28 +36,75 @@ def _admin_action(election_id, action, **values):
 # -------------------------------------------------------------------------
 # ROUTES: ADMINISTRATOR ACTIONS
 # -------------------------------------------------------------------------
-@bp.route("/admin/election/create", methods=["POST"])
+@bp.route("/admin/election/create", methods=["GET", "POST"])
 @login_required
 @admin_required
 def create_election():
+    form_data = {field: request.form.get(field, "") for field in (
+        "title", "description", "start_time", "end_time",
+    )}
+    names = request.form.getlist("candidate_name")
+    manifestos = request.form.getlist("candidate_manifesto")
+    candidate_rows = [
+        {"name": name, "manifesto": manifesto}
+        for name, manifesto in zip_longest(names, manifestos, fillvalue="")
+    ]
+    candidate_errors = {}
+
+    def show_form(needs_confirmation=False):
+        return render_template(
+            "create_election.html", form_data=form_data,
+            candidate_rows=candidate_rows or [{"name": "", "manifesto": ""}],
+            candidate_errors=candidate_errors, needs_confirmation=needs_confirmation,
+        )
+
+    if request.method == "GET" or request.form.get("cancel_without_candidates") == "yes":
+        return show_form()
+
     try:
         values = validate_election_parameters(
-            request.form.get("title", ""), request.form.get("description", ""),
-            request.form.get("start_time", ""), request.form.get("end_time", ""),
+            **form_data,
         )
     except ValueError as error:
         flash(str(error), "danger")
-        return redirect(url_for("elections.dashboard"))
+        return show_form()
+
+    if len(names) != len(manifestos):
+        flash("Candidate fields do not match. Review each candidate before creating the election.", "danger")
+        return show_form()
+
+    candidates = []
+    for index, candidate in enumerate(candidate_rows):
+        if not candidate["name"].strip() and not candidate["manifesto"].strip():
+            continue
+        try:
+            candidates.append(validate_candidate_parameters(**candidate))
+        except ValueError as error:
+            candidate_errors[index] = str(error)
+    if candidate_errors:
+        flash("Please correct the highlighted candidate details.", "danger")
+        return show_form()
+
+    if not candidates and request.form.get("confirm_without_candidates") != "yes":
+        return show_form(needs_confirmation=True)
 
     try:
         with get_db():
             election_id = database.create_election(**values)
             database.log_audit(session["user_id"], f"Created election '{values['title']}' (ID: {election_id})")
+            for candidate in candidates:
+                candidate_id = database.add_candidate(election_id, **candidate)
+                changes = {"candidate": {"before": None, "after": candidate}}
+                database.log_audit(
+                    session["user_id"],
+                    f"Added candidate '{candidate['name']}' (ID: {candidate_id}) in Election ID {election_id}: "
+                    + json.dumps(changes, ensure_ascii=False),
+                )
     except sqlite3.Error:
         flash("Unable to create the election. Changes were rolled back. Please try again.", "danger")
-        return redirect(url_for("elections.dashboard"))
+        return show_form()
     flash("Election created successfully. Prepare the candidates, then confirm the election.", "success")
-    return redirect(url_for("elections.dashboard"))
+    return redirect(url_for("elections.view_election", election_id=election_id))
 
 
 # -------------------------------------------------------------------------

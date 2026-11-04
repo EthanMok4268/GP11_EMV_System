@@ -12,7 +12,8 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 * **Election Lifecycle Management:** New elections are private `DRAFT`s. After an administrator confirms a complete roster of at least two candidates, the election follows its configured `UPCOMING`, `ACTIVE`, and `CLOSED` times.
 * **Early Election Closure:** Administrators can end an active election early, publish results immediately, and record the action in the audit log.
 * **Closed Election Deletion:** Administrators can permanently delete a closed election from its detail page after confirming a warning dialog. Associated voting data is removed while administrative audit logs are retained.
-* **Candidate Management:** Administrators can add, edit, or remove candidates while an election is `DRAFT` or `UPCOMING`. Name and manifesto are required; duplicate names are allowed. Candidate lists lock once voting begins. Changing a confirmed roster returns the election to draft and requires confirmation again.
+* **Integrated Election Creation:** A dedicated administrator page shows election details and candidate entries together, side by side on desktop and stacked on mobile. Administrators can add several candidates before saving, or explicitly confirm creating an empty draft. Election settings, candidates, and their audit records are saved together or rolled back together.
+* **Candidate Management:** Administrators can add, edit, or remove candidates while an election is `DRAFT` or `UPCOMING`. Name and manifesto are required, and names cannot consist only of numbers; duplicate names are allowed. Candidate lists lock once voting begins. Changing a confirmed roster returns the election to draft and requires confirmation again.
 * **Voter Eligibility Workflow:** Voters can request participation in `UPCOMING` or `ACTIVE` elections (`PENDING`), and Administrators can approve (`APPROVED`) or reject (`REJECTED`) eligibility requests before closure. Once an election is `CLOSED`, whether on schedule or early, new requests and eligibility decisions are blocked. Existing records remain visible with their statuses unchanged. Both actions recheck the latest election state after acquiring a database write lock; eligibility decisions and their audit entries commit or roll back together.
 * **Electronic Voting & Duplicate Prevention:** Approved voters can cast exactly one ballot during an `ACTIVE` election and receive an immediate confirmation receipt ID.
 * **Automated Vote Counting & Publication:** Tallies and percentages remain sealed during active voting and are automatically calculated and published once the election reaches the `CLOSED` state.
@@ -20,14 +21,16 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 
 ### Prepare and Confirm an Election
 
-1. Create an election with its title, description, and start/end times. It remains a private **DRAFT**, even when the start time has already arrived.
-2. Open the election and add at least **two candidates**. Every candidate must have a non-blank name and manifesto. Adding candidates never starts voting automatically.
+1. On the election list, click **Create New Election**. The dedicated page shows the title, optional description, start/end times, and candidate entries together. Use **Add Candidate** or **Remove** to prepare the roster. Each entered candidate needs both a name and manifesto; completely blank entries are skipped.
+2. Click **Create Election** to save the election and candidates together and open its detail page. With no candidates, a dialog asks you to **Confirm Creation**; **Cancel**, the close button, or Esc returns to the unchanged form. Without JavaScript, the same confirmation appears on the page. New elections remain private **DRAFT**s, even when the start time has arrived or several candidates were included. You can still add or change candidates on the detail page; adding candidates never starts voting automatically.
 3. To edit a candidate, expand **Edit** next to that candidate and use **Save Candidate**. Stale, altered, or deleted-candidate forms are rejected. Candidate IDs are preserved.
 4. Review **Election Readiness**, fix any missing information or expired end time, then click **Confirm Election**. Voting starts immediately if the start time has arrived, or automatically at the future scheduled time.
 
 Draft elections are hidden from voters, including direct links and participation/voting endpoints. Existing participation requests remain stored when an election returns to draft. Before voting begins, adding, editing, or removing a confirmed candidate revokes confirmation; confirm the complete roster again afterward. Once voting starts, the roster is locked.
 
 Candidate editing uses administrator-only POST `/admin/election/<election_id>/candidate/<cand_id>/update` with `name`, `manifesto`, and `edit_token`. Confirmation uses POST `/admin/election/<election_id>/confirm` with `confirmation_token`. Signed form snapshots prevent stale candidate edits and confirmation of a changed roster or schedule. Candidate changes, confirmation, and voting recheck current state after obtaining a SQLite write lock.
+
+Administrator-only GET `/admin/election/create` displays the creation page. POST to the same URL accepts `title`, `description`, `start_time`, `end_time`, and paired repeated `candidate_name` / `candidate_manifesto` fields. Invalid entries preserve the complete form for correction. Empty rosters require the explicit submit value `confirm_without_candidates=yes`; a missing or incorrect value displays the confirmation without saving anything. This acknowledgement only permits saving an empty draft; it does not confirm the election for voting. No database migration or additional package is needed.
 
 ### Election Editing Rules
 
@@ -100,6 +103,7 @@ GP11_EMV_System/
 │   └── templates/                # Shared layout and page templates
 ├── test_app.py                   # Automated Pytest suite
 ├── test_candidate_management.py  # Candidate, readiness, migration and race tests
+├── test_election_creation.py     # Combined creation, empty-roster consent and rollback tests
 ├── test_election_deletion.py     # Deletion, confirmation, cascade and rollback tests
 ├── project_dependencies.txt      # Python package dependencies
 └── README.md                     # Project documentation
@@ -177,6 +181,8 @@ The automated test suite uses temporary SQLite databases to verify authenticatio
 Election-edit tests cover state-specific permissions and form controls, date and title validation, administrator-only POST access, stale end times, state changes while waiting for a write lock, audit failure rollback, and preservation of candidates, participation requests, and ballots.
 
 Candidate/readiness tests also cover required names and manifestos, signed stale-form protection, independent edit forms, confirmation revocation, draft privacy, zero/one/two-candidate thresholds, scheduled and immediate activation, expired draft recovery, transaction rollback, actual SQLite lock waits, and legacy migration preflight and rollback.
+
+Integrated creation tests cover administrator-only access, saving one or several candidates, blank and incomplete entries, mismatched candidate fields, numeric names, explicit empty-roster confirmation and cancellation, preservation and escaping of submitted values, and rollback after a later candidate or audit write fails. The new page is also checked in a real browser for candidate controls, dialog cancellation and focus, confirmation, disabled JavaScript, and desktop/mobile layouts.
 
 Deletion tests cover administrator-only access and visibility, explicit confirmation, tokens bound to the election and login session, closed-state enforcement, complete cascading deletion, preservation of other elections and audit history, repeated requests, transaction rollback, escaped titles, and rechecking state after actual SQLite lock waits. The dialog flow is also checked in a real browser for cancellation, Esc, confirmation, and disabled JavaScript.
 

@@ -81,12 +81,16 @@ def test_admin_election_candidate_actions_and_template_escaping(client):
     end = (datetime.now() + timedelta(days=11)).strftime("%Y-%m-%dT%H:%M")
     response = client.post("/admin/election/create", data={
         "title": "<script>alert(1)</script>", "description": "Example", "start_time": start, "end_time": end,
+        "confirm_without_candidates": "yes",
     }, follow_redirects=True)
     assert b"Election created successfully" in response.data
     assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in response.data
     assert b"<script>alert(1)</script>" not in response.data
-    assert b'action="/admin/election/create"' in response.data
-    assert b'href="/election/2"' in response.data
+    assert response.request.path == "/election/2"
+    dashboard = client.get("/").data
+    assert b'href="/admin/election/create"' in dashboard
+    assert b'href="/election/2"' in dashboard
+    assert b'action="/admin/election/create"' in client.get("/admin/election/create").data
 
     response = client.post("/admin/election/2/candidate/add", data={
         "name": "Candidate <One>", "manifesto": "Example",
@@ -298,6 +302,7 @@ def test_create_normalizes_dates_and_accepts_empty_description(client):
     response = client.post("/admin/election/create", data={
         "title": "  Future election  ", "description": "   ",
         "start_time": "2100-1-2T3:4", "end_time": "2100-1-3T5:6",
+        "confirm_without_candidates": "yes",
     }, follow_redirects=True)
     assert b"Election created successfully." in response.data
     with client.application.app_context():
@@ -430,7 +435,10 @@ def test_election_audit_failure_rolls_back_and_returns_generic_error(client, mon
         raise sqlite3.OperationalError("Private database failure details")
 
     monkeypatch.setattr(database, "log_audit", fail_audit)
-    response = client.post(f"/admin/election/{route}", data=election_update_fields(client, title="Must roll back"), follow_redirects=True)
+    fields = election_update_fields(client, title="Must roll back")
+    if route == "create":
+        fields["confirm_without_candidates"] = "yes"
+    response = client.post(f"/admin/election/{route}", data=fields, follow_redirects=True)
     assert b"alert-danger" in response.data
     assert b"Private database failure details" not in response.data
     assert election_management_snapshot(client) == before

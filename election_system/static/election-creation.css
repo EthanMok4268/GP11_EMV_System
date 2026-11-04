@@ -1,0 +1,26 @@
+.election-creation .candidate-entry {
+    background: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+.election-creation textarea {
+    resize: vertical;
+}
+
+.election-creation .form-control {
+    min-width: 0;
+}
+
+.election-creation-dialog {
+    width: min(32rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+}
+
+.election-creation-dialog::backdrop {
+    background: rgb(0 0 0 / 50%);
+}
+
+@media (max-width: 575.98px) {
+    .election-creation .card-body {
+        padding: 1rem !important;
+    }
+}

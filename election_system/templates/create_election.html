@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='election-creation.css') }}">
+<script src="{{ url_for('static', filename='election-creation.js') }}" defer></script>
+{% endblock %}
+
+{% macro candidate_row(index, candidate, error=None) %}
+<div class="candidate-entry border rounded-3 p-3" data-candidate-row>
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <h3 class="fs-6 fw-bold mb-0">Candidate <span data-candidate-number>{{ index + 1 if index is number else '' }}</span></h3>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-remove-candidate disabled>Remove</button>
+    </div>
+    <div class="mb-3">
+        <label for="candidate-name-{{ index }}" class="form-label">Candidate Name</label>
+        <input id="candidate-name-{{ index }}" name="candidate_name" value="{{ candidate.name }}" class="form-control" data-candidate-name aria-describedby="candidate-error-{{ index }}"{% if error %} aria-invalid="true"{% endif %}>
+    </div>
+    <div class="mb-2">
+        <label for="candidate-manifesto-{{ index }}" class="form-label">Manifesto / Bio</label>
+        <textarea id="candidate-manifesto-{{ index }}" name="candidate_manifesto" rows="3" class="form-control" data-candidate-manifesto aria-describedby="candidate-error-{{ index }}"{% if error %} aria-invalid="true"{% endif %}>{{ candidate.manifesto }}</textarea>
+    </div>
+    <p id="candidate-error-{{ index }}" class="small text-danger mb-0" data-candidate-error aria-live="polite"{% if not error %} hidden{% endif %}>{{ error or '' }}</p>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="election-creation">
+    <a href="{{ url_for('elections.dashboard') }}" class="text-decoration-none d-inline-block mb-3">&larr; Back to Elections</a>
+    <div class="mb-4">
+        <h1 class="h3 mb-2">Create New Election</h1>
+        <p class="text-muted mb-0">Set up the election and its candidates in one place. You can keep preparing it after saving.</p>
+    </div>
+    <div class="alert alert-primary small mb-4">
+        <strong>Saved as a draft.</strong> At least two candidates with complete manifestos are required before you can confirm the election and open voting.
+    </div>
+
+    <form method="POST" action="{{ url_for('admin.create_election') }}" id="election-creation-form">
+        <div class="row g-4 align-items-start">
+            <section class="col-lg-5" aria-labelledby="election-details-title">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4">
+                        <h2 id="election-details-title" class="h5 mb-1">Election Details</h2>
+                        <p class="text-muted small mb-4">Tell voters what this election is about.</p>
+                        <div class="mb-3">
+                            <label for="election-title" class="form-label">Title <span class="text-muted small">(required)</span></label>
+                            <input id="election-title" name="title" value="{{ form_data.title }}" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="election-description" class="form-label">Description <span class="text-muted small">(optional)</span></label>
+                            <textarea id="election-description" name="description" rows="3" class="form-control">{{ form_data.description }}</textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="election-start" class="form-label">Start Time <span class="text-muted small">(required)</span></label>
+                            <input id="election-start" type="datetime-local" name="start_time" value="{{ form_data.start_time }}" class="form-control" aria-describedby="election-schedule-help" required>
+                        </div>
+                        <div class="mb-2">
+                            <label for="election-end" class="form-label">End Time <span class="text-muted small">(required)</span></label>
+                            <input id="election-end" type="datetime-local" name="end_time" value="{{ form_data.end_time }}" class="form-control" aria-describedby="election-schedule-help" required>
+                        </div>
+                        <p id="election-schedule-help" class="form-text mb-0">The end time must be after the start time.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="col-lg-7" aria-labelledby="candidates-title">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                            <h2 id="candidates-title" class="h5 mb-0">Candidates</h2>
+                            <span id="candidate-count" class="badge bg-light text-secondary" aria-live="polite">Optional for drafts</span>
+                        </div>
+                        <p class="text-muted small mb-4" id="candidate-help">Add candidates now or later. Each candidate needs a name and manifesto. Completely blank entries are skipped.</p>
+                        <div id="candidate-rows" class="d-grid gap-3" aria-describedby="candidate-help">
+                            {% for candidate in candidate_rows %}
+                            {{ candidate_row(loop.index0, candidate, candidate_errors.get(loop.index0)) }}
+                            {% endfor %}
+                        </div>
+                        <p id="no-candidate-entries" class="text-muted small my-3" hidden>No candidates added. You can still save this election as a draft.</p>
+                        <button type="button" id="add-candidate" class="btn btn-outline-primary w-100 mt-3" disabled>+ Add Candidate</button>
+                        <noscript><p class="form-text mb-0">You can enter a candidate here and add more from the election detail page after saving.</p></noscript>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <section id="empty-roster-confirmation" class="alert alert-warning mt-4 mb-0" aria-labelledby="empty-roster-title"{% if not needs_confirmation %} hidden{% endif %}>
+            <h2 id="empty-roster-title" class="h6">Create without candidates?</h2>
+            <p>This election has no candidates. Create it as a draft anyway? You can add candidates later.</p>
+            <div class="d-flex gap-2 flex-wrap">
+                <button type="submit" class="btn btn-secondary" name="cancel_without_candidates" value="yes" formnovalidate>Cancel</button>
+                <button type="submit" class="btn btn-primary" name="confirm_without_candidates" value="yes">Confirm Creation</button>
+            </div>
+        </section>
+
+        <div class="d-flex justify-content-between align-items-center gap-3 border-top mt-4 pt-4">
+            <a href="{{ url_for('elections.dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" id="create-election" class="btn btn-primary px-4">Create Election</button>
+        </div>
+    </form>
+
+    <template id="candidate-row-template">{{ candidate_row('__INDEX__', {'name': '', 'manifesto': ''}) }}</template>
+
+    <dialog id="empty-roster-dialog" class="election-creation-dialog border-0 rounded-3 shadow p-0" aria-labelledby="empty-roster-dialog-title" aria-describedby="empty-roster-dialog-warning">
+        <div class="d-flex justify-content-between align-items-center gap-3 p-3 border-bottom">
+            <h2 id="empty-roster-dialog-title" class="h5 mb-0">Create without candidates?</h2>
+            <button type="button" class="btn-close" data-cancel-creation aria-label="Close"></button>
+        </div>
+        <div class="p-3">
+            <p id="empty-roster-dialog-warning" class="mb-0">This election has no candidates. Create it as a draft anyway? You can add candidates later.</p>
+        </div>
+        <div class="d-flex justify-content-end gap-2 flex-wrap p-3 border-top">
+            <button type="button" class="btn btn-secondary" data-cancel-creation autofocus>Cancel</button>
+            <button type="submit" class="btn btn-primary" form="election-creation-form" name="confirm_without_candidates" value="yes">Confirm Creation</button>
+        </div>
+    </dialog>
+</div>
+{% endblock %}
