@@ -145,7 +145,7 @@ def _check_form_token(token, purpose, expected):
 
 
 # -------------------------------------------------------------------------
-# CONFIRM & PERMANENTLY DELETE A CLOSED ELECTION
+# CONFIRM & PERMANENTLY DELETE AN ELECTION
 # -------------------------------------------------------------------------
 def _election_deletion_context(election_id, admin_id):
     return {
@@ -161,15 +161,15 @@ def election_deletion_token(election_id, admin_id):
     return _form_serializer("election-deletion").dumps(_election_deletion_context(election_id, admin_id))
 
 
-def delete_closed_election(election_id, admin_id, deletion_token, confirmed):
+def delete_election(election_id, admin_id, deletion_token, confirmed):
     """Delete the election, its dependent records and its deletion audit atomically."""
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         election = database.find_election(election_id)
         if election is None:
             raise LookupError("Election not found.")
-        if get_election_status(election) != "CLOSED":
-            raise ValueError("Only CLOSED elections can be deleted. Reload the election page.")
+        if get_election_status(election) not in ("DRAFT", "UPCOMING", "CLOSED"):
+            raise ValueError("Only DRAFT, UPCOMING, or CLOSED elections can be deleted. Reload the election page.")
         if confirmed != "yes":
             raise ValueError("Confirm deletion in the election's deletion dialog before deleting.")
         if not session.get("election_deletion_nonce"):

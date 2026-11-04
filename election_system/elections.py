@@ -54,7 +54,7 @@ def view_election(election_id):
     confirmation_token = None
     deletion_token = None
     readiness_issues = []
-    if session.get("role") == "ADMIN" and status == "CLOSED":
+    if session.get("role") == "ADMIN" and status in ("DRAFT", "UPCOMING", "CLOSED"):
         deletion_token = election_deletion_token(election_id, session["user_id"])
     if session.get("role") == "ADMIN" and status in ("DRAFT", "UPCOMING"):
         candidate_tokens = {candidate["id"]: candidate_edit_token(candidate) for candidate in candidates}

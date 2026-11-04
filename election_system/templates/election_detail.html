@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block head %}
-{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+{% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING', 'CLOSED') %}
 <link rel="stylesheet" href="{{ url_for('static', filename='election-deletion.css') }}">
 <script src="{{ url_for('static', filename='election-deletion.js') }}" defer></script>
 {% endif %}
@@ -18,7 +18,7 @@
                     <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
                 </form>
                 {% endif %}
-                {% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+                {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING', 'CLOSED') %}
                 <button type="button" id="open-election-deletion" class="btn btn-sm btn-danger ms-2" aria-haspopup="dialog" aria-controls="election-deletion-dialog" disabled>Delete Election</button>
                 <noscript><p class="text-danger small mt-2 mb-0">JavaScript is required to confirm election deletion.</p></noscript>
                 {% endif %}
@@ -29,7 +29,7 @@
     </div>
 </div>
 
-{% if session['role'] == 'ADMIN' and status == 'CLOSED' %}
+{% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING', 'CLOSED') %}
 <dialog id="election-deletion-dialog" class="election-deletion-dialog border-0 rounded shadow p-0" aria-labelledby="election-deletion-title" aria-describedby="election-deletion-warning election-deletion-audit">
     <form method="POST" action="{{ url_for('admin.delete_election', election_id=election.id) }}" id="election-deletion-form">
         <input type="hidden" name="deletion_token" value="{{ deletion_token }}">
@@ -203,7 +203,7 @@
 
         {% if status in ('DRAFT', 'UPCOMING') %}
         <div class="card shadow-sm mb-4">
-            <div class="card-header fw-bold">Add Candidate (Before Voting Starts)</div>
+            <div class="card-header fw-bold">Add Candidate</div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('admin.add_candidate', election_id=election.id) }}">
                     <div class="mb-2"><input type="text" name="name" placeholder="Candidate Name" class="form-control form-control-sm" required></div>

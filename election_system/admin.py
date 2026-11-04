@@ -11,8 +11,8 @@ from .auth import admin_required, login_required
 from .db import get_db
 from .services import (
     change_candidate, confirm_election as confirm_election_service, get_election_status,
-    delete_closed_election, update_election_details, update_voter_eligibility, validate_election_parameters,
-    validate_candidate_parameters,
+    delete_election as delete_election_service, update_election_details, update_voter_eligibility,
+    validate_election_parameters, validate_candidate_parameters,
 )
 
 bp = Blueprint("admin", __name__)
@@ -122,7 +122,7 @@ def update_election(election_id):
 
 
 # -------------------------------------------------------------------------
-# ROUTES: DELETE A CLOSED ELECTION
+# ROUTES: DELETE AN ELECTION
 # -------------------------------------------------------------------------
 @bp.route("/admin/election/<int:election_id>/delete", methods=["POST"])
 @login_required
@@ -130,7 +130,7 @@ def update_election(election_id):
 def delete_election(election_id):
     destination = url_for("elections.dashboard")
     try:
-        message, category = delete_closed_election(
+        message, category = delete_election_service(
             election_id, session["user_id"], request.form.get("deletion_token", ""),
             request.form.get("confirmed", ""),
         )

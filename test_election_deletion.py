@@ -1,4 +1,4 @@
-"""Closed-election deletion, confirmation, cascade, rollback and lock regressions."""
+"""Election deletion, confirmation, cascade, rollback and lock regressions."""
 import re
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -14,15 +14,22 @@ from test_app import client, election_management_snapshot, login, set_management
 def set_state(client, state):
     scheduled_state = {"DRAFT": "UPCOMING", "EXPIRED_DRAFT": "CLOSED"}.get(state, state)
     set_management_election_state(client, scheduled_state)
-    if state in ("DRAFT", "EXPIRED_DRAFT"):
-        with client.application.app_context():
-            with get_db() as db:
-                db.execute("UPDATE elections SET is_confirmed = 0 WHERE id = 1")
+    with client.application.app_context():
+        with get_db() as db:
+            db.execute("UPDATE elections SET is_confirmed = ? WHERE id = 1",
+                       (int(state not in ("DRAFT", "EXPIRED_DRAFT")),))
 
 
 @pytest.fixture
 def closed_client(client):
     set_state(client, "CLOSED")
+    login(client, "admin", "admin123")
+    return client
+
+
+@pytest.fixture(params=["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED"])
+def deletable_client(client, request):
+    set_state(client, request.param)
     login(client, "admin", "admin123")
     return client
 
@@ -36,14 +43,16 @@ def deletion_data(client, election_id=1):
 
 @pytest.mark.parametrize("state", ["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "ACTIVE", "CLOSED"])
 @pytest.mark.parametrize("role", ["ADMIN", "VOTER"])
-def test_deletion_controls_only_appear_for_admin_on_closed_detail(client, state, role):
+def test_deletion_controls_only_appear_for_admin_on_deletable_detail(client, state, role):
     set_state(client, state)
     login(client, "admin" if role == "ADMIN" else "voter1", "admin123" if role == "ADMIN" else "voter123")
     page = client.get("/election/1", follow_redirects=True).data
-    visible = role == "ADMIN" and state == "CLOSED"
+    visible = role == "ADMIN" and state in ("DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED")
     assert (b'id="open-election-deletion"' in page) is visible
     assert (b'<dialog id="election-deletion-dialog"' in page) is visible
     assert (b'name="deletion_token"' in page) is visible
+    assert (b'election-deletion.js' in page) is visible
+    assert (b'election-deletion.css' in page) is visible
     assert b'id="open-election-deletion"' not in client.get("/").data
     if visible:
         assert re.search(rb'<button[^>]*id="open-election-deletion"[^>]*disabled', page)
@@ -67,8 +76,8 @@ def test_dialog_escapes_election_title_and_loading_the_page_does_not_delete(clos
 
 
 @pytest.mark.parametrize("role", ["ANONYMOUS", "VOTER"])
-def test_deletion_requires_logged_in_administrator(closed_client, role):
-    client = closed_client
+def test_deletion_requires_logged_in_administrator(deletable_client, role):
+    client = deletable_client
     data = deletion_data(client)
     client.get("/logout")
     if role == "VOTER":
@@ -86,8 +95,8 @@ def test_deletion_rejects_get(closed_client):
 
 
 @pytest.mark.parametrize("confirmation", [None, "", "no", "true"])
-def test_deletion_requires_explicit_confirmation(closed_client, confirmation):
-    client = closed_client
+def test_deletion_requires_explicit_confirmation(deletable_client, confirmation):
+    client = deletable_client
     data = deletion_data(client)
     data.pop("confirmed")
     if confirmation is not None:
@@ -99,8 +108,8 @@ def test_deletion_requires_explicit_confirmation(closed_client, confirmation):
 
 
 @pytest.mark.parametrize("invalid", ["missing", "tampered", "other_election", "other_session", "other_admin", "missing_nonce"])
-def test_deletion_token_is_bound_to_election_admin_and_session(closed_client, invalid):
-    client = closed_client
+def test_deletion_token_is_bound_to_election_admin_and_session(deletable_client, invalid):
+    client = deletable_client
     data = deletion_data(client)
     if invalid == "missing":
         data.pop("deletion_token")
@@ -132,14 +141,13 @@ def test_deletion_token_is_bound_to_election_admin_and_session(closed_client, in
     assert election_management_snapshot(client) == before
 
 
-@pytest.mark.parametrize("state", ["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "ACTIVE"])
-def test_backend_rechecks_closed_status_even_with_valid_confirmation(closed_client, state):
-    client = closed_client
+def test_backend_rejects_active_election_even_with_valid_confirmation(deletable_client):
+    client = deletable_client
     data = deletion_data(client)
-    set_state(client, state)
+    set_state(client, "ACTIVE")
     before = election_management_snapshot(client)
     response = client.post("/admin/election/1/delete", data=data, follow_redirects=True)
-    assert b"Only CLOSED elections can be deleted" in response.data
+    assert b"Only DRAFT, UPCOMING, or CLOSED elections can be deleted" in response.data
     assert election_management_snapshot(client) == before
 
 
@@ -161,11 +169,11 @@ def populate_related_data(client):
             database.log_audit(1, "Historical action for Election ID 2")
 
 
-@pytest.mark.parametrize("closure", ["scheduled", "early"])
-def test_confirmed_deletion_cascades_and_preserves_other_elections_users_and_audits(closed_client, closure):
-    client = closed_client
-    if closure == "early":
-        set_state(client, "ACTIVE")
+@pytest.mark.parametrize("state", ["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED", "CLOSED_EARLY"])
+def test_confirmed_deletion_cascades_and_preserves_other_elections_users_and_audits(client, state):
+    set_state(client, "ACTIVE" if state == "CLOSED_EARLY" else state)
+    login(client, "admin", "admin123")
+    if state == "CLOSED_EARLY":
         response = client.post("/admin/election/1/close", follow_redirects=True)
         assert b"Election has been closed early" in response.data
     populate_related_data(client)
@@ -201,6 +209,20 @@ def test_confirmed_deletion_cascades_and_preserves_other_elections_users_and_aud
     assert b"Election not found" in response.data
 
 
+@pytest.mark.parametrize("state", ["DRAFT", "EXPIRED_DRAFT"])
+def test_draft_without_candidates_can_be_deleted(client, state):
+    set_state(client, state)
+    with client.application.app_context():
+        with get_db() as db:
+            db.execute("DELETE FROM candidates WHERE election_id = 1")
+    login(client, "admin", "admin123")
+    response = client.post("/admin/election/1/delete", data=deletion_data(client), follow_redirects=True)
+    assert b"deleted permanently" in response.data
+    with client.application.app_context():
+        assert database.find_election(1) is None
+        assert len(database.list_recent_audit_logs()) == 1
+
+
 def test_missing_election_and_duplicate_deletion_return_to_dashboard_without_extra_audit(closed_client):
     client = closed_client
     data = deletion_data(client)
@@ -214,8 +236,8 @@ def test_missing_election_and_duplicate_deletion_return_to_dashboard_without_ext
 
 
 @pytest.mark.parametrize("failure", ["cascade", "audit"])
-def test_failed_deletion_rolls_back_all_records_and_hides_database_error(closed_client, monkeypatch, failure):
-    client = closed_client
+def test_failed_deletion_rolls_back_all_records_and_hides_database_error(deletable_client, monkeypatch, failure):
+    client = deletable_client
     populate_related_data(client)
     data = deletion_data(client)
     if failure == "cascade":
@@ -234,9 +256,9 @@ def test_failed_deletion_rolls_back_all_records_and_hides_database_error(closed_
     assert election_management_snapshot(client) == before
 
 
-@pytest.mark.parametrize("newer_action", ["reopen", "delete"])
-def test_waiting_deletion_reloads_state_after_acquiring_write_lock(closed_client, monkeypatch, newer_action):
-    client = closed_client
+@pytest.mark.parametrize("newer_action", ["activate", "delete"])
+def test_waiting_deletion_reloads_state_after_acquiring_write_lock(deletable_client, monkeypatch, newer_action):
+    client = deletable_client
     data = deletion_data(client)
     app = client.application
     with client.session_transaction() as session:
@@ -266,8 +288,9 @@ def test_waiting_deletion_reloads_state_after_acquiring_write_lock(closed_client
             try:
                 assert waiting.wait(timeout=3)
                 assert not future.done()
-                if newer_action == "reopen":
-                    blocker.execute("UPDATE elections SET end_time = '2100-01-01T00:00' WHERE id = 1")
+                if newer_action == "activate":
+                    blocker.execute("UPDATE elections SET is_confirmed = 1, start_time = '2000-01-01T00:00', "
+                                    "end_time = '2100-01-01T00:00' WHERE id = 1")
                 else:
                     blocker.execute("DELETE FROM elections WHERE id = 1")
                 blocker.commit()
@@ -276,8 +299,8 @@ def test_waiting_deletion_reloads_state_after_acquiring_write_lock(closed_client
             response = future.result(timeout=5)
     finally:
         blocker.close()
-    assert (b"Only CLOSED elections" if newer_action == "reopen" else b"Election not found") in response.data
+    assert (b"Only DRAFT, UPCOMING, or CLOSED elections" if newer_action == "activate" else b"Election not found") in response.data
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 0
         election = database.find_election(1)
-        assert (election is not None) is (newer_action == "reopen")
+        assert (election is not None) is (newer_action == "activate")
