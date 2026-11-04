@@ -257,11 +257,21 @@ def list_voter_requests(election_id):
 # ADMINISTRATIVE AUDIT LOG QUERIES
 # -------------------------------------------------------------------------
 def list_recent_audit_logs():
-    return get_db().execute("""
+    return list_audit_logs(limit=15)
+
+
+def list_audit_logs(*, before_id=None, limit=21):
+    query = """
         SELECT a.*, u.username FROM audit_logs a
         JOIN users u ON a.admin_id = u.id
-        ORDER BY a.id DESC LIMIT 15
-    """).fetchall()
+    """
+    parameters = []
+    if before_id is not None:
+        query += " WHERE a.id < ?"
+        parameters.append(before_id)
+    query += " ORDER BY a.id DESC LIMIT ?"
+    parameters.append(limit)
+    return get_db().execute(query, parameters).fetchall()
 
 
 def log_audit(admin_id, action):

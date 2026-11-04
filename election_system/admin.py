@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from itertools import zip_longest
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
 
 from . import db as database
 from .auth import admin_required, login_required
@@ -16,6 +16,16 @@ from .services import (
 )
 
 bp = Blueprint("admin", __name__)
+_AUDIT_LOG_BATCH_SIZE = 20
+
+
+def _audit_log_batch(before_id=None):
+    rows = database.list_audit_logs(before_id=before_id, limit=_AUDIT_LOG_BATCH_SIZE + 1)
+    audit_logs = rows[:_AUDIT_LOG_BATCH_SIZE]
+    next_url = None
+    if len(rows) > _AUDIT_LOG_BATCH_SIZE:
+        next_url = url_for("admin.audit_log_entries", before=audit_logs[-1]["id"])
+    return audit_logs, next_url
 
 
 def _admin_action(election_id, action, **values):
@@ -36,6 +46,36 @@ def _admin_action(election_id, action, **values):
 # -------------------------------------------------------------------------
 # ROUTES: ADMINISTRATOR ACTIONS
 # -------------------------------------------------------------------------
+@bp.route("/admin/audit-logs")
+@login_required
+@admin_required
+def audit_logs():
+    entries, next_url = _audit_log_batch()
+    return render_template("audit_logs.html", audit_logs=entries, next_url=next_url)
+
+
+@bp.route("/admin/audit-logs/entries")
+@login_required
+@admin_required
+def audit_log_entries():
+    before = request.args.get("before", "")
+    normalized_before = before.lstrip("0")
+    if (
+        not before.isascii() or not before.isdecimal() or not normalized_before
+        or len(normalized_before) > 19
+        or (len(normalized_before) == 19 and normalized_before > "9223372036854775807")
+    ):
+        return jsonify(error="Invalid audit log cursor."), 400
+    entries, next_url = _audit_log_batch(int(normalized_before))
+    return jsonify(
+        entries=[
+            {field: entry[field] for field in ("username", "action", "timestamp")}
+            for entry in entries
+        ],
+        next_url=next_url,
+    )
+
+
 @bp.route("/admin/election/create", methods=["GET", "POST"])
 @login_required
 @admin_required

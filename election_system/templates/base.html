@@ -13,11 +13,14 @@
 </head>
 <body class="bg-light">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-    <div class="container">
+    <div class="container flex-wrap gap-3">
         <a class="navbar-brand fw-bold" href="{{ url_for('elections.dashboard') }}">🗳️ E-Vote System</a>
         {% if session.get('user_id') %}
-        <div class="d-flex align-items-center text-white">
-            <span class="me-3">User: <strong>{{ session['username'] }}</strong> <span class="badge bg-secondary">{{ session['role'] }}</span></span>
+        <div class="d-flex flex-wrap align-items-center gap-2 text-white mw-100">
+            <span class="text-break">User: <strong>{{ session['username'] }}</strong> <span class="badge bg-secondary">{{ session['role'] }}</span></span>
+            {% if session.get('role') == 'ADMIN' %}
+            <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-outline-light btn-sm"{% if request.endpoint == 'admin.audit_logs' %} aria-current="page"{% endif %}>Audit Log</a>
+            {% endif %}
             <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm">Logout</a>
         </div>
         {% endif %}

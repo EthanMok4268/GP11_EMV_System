@@ -27,8 +27,7 @@ def dashboard():
             "status": status,
             "part": database.find_participation(row["id"], session["user_id"]),
         })
-    audit_logs = database.list_recent_audit_logs() if session.get("role") == "ADMIN" else []
-    return render_template("dashboard.html", elections=elections, audit_logs=audit_logs)
+    return render_template("dashboard.html", elections=elections)
 
 
 # -------------------------------------------------------------------------

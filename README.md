@@ -17,7 +17,7 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 * **Voter Eligibility Workflow:** Voters can request participation in `UPCOMING` or `ACTIVE` elections (`PENDING`), and Administrators can approve (`APPROVED`) or reject (`REJECTED`) eligibility requests before closure. Once an election is `CLOSED`, whether on schedule or early, new requests and eligibility decisions are blocked. Existing records remain visible with their statuses unchanged. Both actions recheck the latest election state after acquiring a database write lock; eligibility decisions and their audit entries commit or roll back together.
 * **Electronic Voting & Duplicate Prevention:** Approved voters can cast exactly one ballot during an `ACTIVE` election and receive an immediate confirmation receipt ID.
 * **Automated Vote Counting & Publication:** Tallies and percentages remain sealed during active voting and are automatically calculated and published once the election reaches the `CLOSED` state.
-* **Administrative Audit Trail:** Records election creation, edits and deletion, candidate additions/edits/removals, roster confirmation, voter eligibility decisions, and early closure with timestamps. Changes and their previous/new values are committed together with their audit entry. Unchanged submissions do not add audit records or revoke confirmation.
+* **Administrative Audit Trail:** Records election creation, edits and deletion, candidate additions/edits/removals, roster confirmation, voter eligibility decisions, and early closure with timestamps. Administrators can open **Audit Log** from the navigation bar to view the latest 20 entries, then click **Load More** to append another 20 at a time. The election list uses the full dashboard width. Changes and their previous/new values are committed together with their audit entry. Unchanged submissions do not add audit records or revoke confirmation.
 
 ### Prepare and Confirm an Election
 
@@ -185,6 +185,8 @@ Candidate/readiness tests also cover required names and manifestos, signed stale
 Integrated creation tests cover administrator-only access, saving one or several candidates, blank and incomplete entries, mismatched candidate fields, numeric names, explicit empty-roster confirmation and cancellation, preservation and escaping of submitted values, and rollback after a later candidate or audit write fails. The new page is also checked in a real browser for candidate controls, dialog cancellation and focus, confirmation, disabled JavaScript, and desktop/mobile layouts.
 
 Deletion tests cover administrator-only access and visibility, explicit confirmation, tokens bound to the election and login session, deletion of drafts (including expired and empty drafts), upcoming and closed elections, active-election protection, complete cascading deletion, preservation of other elections and audit history, repeated requests, transaction rollback, escaped titles, and rechecking state after actual SQLite lock waits. The dialog flow is also checked in a real browser for cancellation, Esc, confirmation, and disabled JavaScript.
+
+Audit-history tests cover administrator-only access and navigation, empty history, 20-entry batches, stable continuation while newer entries are added, invalid cursors, escaped content, and separation from the full-width election dashboard.
 
 Run the test suite from your terminal:
 ```powershell
