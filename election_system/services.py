@@ -259,9 +259,13 @@ def change_candidate(election_id, admin_id, operation, candidate_id=None, name="
         if operation == "update":
             _check_form_token(edit_token, "candidate-edit", candidate_snapshot(candidate))
         if operation != "delete":
+            if not isinstance(name, str):
+                raise ValueError("Candidate name must be text and cannot be a number.")
             name, manifesto = name.strip(), manifesto.strip()
             if not name or not manifesto:
                 raise ValueError("Candidate name and manifesto are both required.")
+            if name.isnumeric():
+                raise ValueError("Candidate name must contain text and cannot be only a number.")
         before = {field: candidate[field] for field in ("name", "manifesto")} if candidate else None
         after = {"name": name, "manifesto": manifesto} if operation != "delete" else None
         if operation == "update" and before == after:

@@ -174,6 +174,24 @@ def test_name_and_manifesto_required_on_add_and_update_without_revoking_confirma
     assert election_management_snapshot(client) == before
 
 
+@pytest.mark.parametrize("operation", ["add", "update"])
+def test_candidate_name_cannot_be_numeric(client, operation):
+    election_id = draft(client)
+    candidate_id = candidates(client, election_id)[0]["id"]
+    if operation == "update":
+        data = edit_data(client, election_id, candidate_id, name="123")
+        route = f"/admin/election/{election_id}/candidate/{candidate_id}/update"
+    else:
+        data = {"name": "123", "manifesto": "A complete manifesto"}
+        route = f"/admin/election/{election_id}/candidate/add"
+
+    before = election_management_snapshot(client)
+    response = client.post(route, data=data, follow_redirects=True)
+
+    assert b"cannot be" in response.data
+    assert election_management_snapshot(client) == before
+
+
 @pytest.mark.parametrize("operation", ["add", "update", "delete"])
 def test_roster_changes_revoke_confirmation_and_preserve_participation(client, operation):
     election_id = draft(client, future=True)
