@@ -15,11 +15,12 @@ from .db import get_db
 # DETERMINE ELECTION STATUS
 # -------------------------------------------------------------------------
 def get_election_status(election, now=None):
+    """Return the status with an inclusive start and exclusive end for voting."""
     if not election["is_confirmed"]:
         return "DRAFT"
     if now is None:
         now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    if now > election["end_time"]:
+    if now >= election["end_time"]:
         return "CLOSED"
     if now < election["start_time"]:
         return "UPCOMING"
@@ -99,7 +100,10 @@ def update_voter_eligibility(election_id, admin_id, voter_id, status):
             raise LookupError("Election not found.")
         if get_election_status(election) == "CLOSED":
             raise ValueError("Voter eligibility cannot be changed after this election has closed.")
-        database.update_voter_status(election_id, voter_id, status)
+        if database.update_voter_status(election_id, voter_id, status) == 0:
+            if database.find_participation(election_id, voter_id) is None:
+                raise ValueError("Participation request not found for this election.")
+            return f"Voter eligibility is already {status}.", "info"
         database.log_audit(
             admin_id,
             f"Set Voter ID {voter_id} eligibility to {status} for Election ID {election_id}",
@@ -199,7 +203,7 @@ def election_readiness_issues(election, candidates, now=None):
         issues.append("At least two candidates are required before confirming the election.")
     if any(not (row["name"] or "").strip() or not (row["manifesto"] or "").strip() for row in candidates):
         issues.append("Every candidate must have a name and manifesto.")
-    if election["end_time"] < now:
+    if election["end_time"] <= now:
         issues.append("The end time has passed. Update the schedule before confirming.")
     return issues
 

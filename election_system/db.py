@@ -112,7 +112,7 @@ def migrate_election_confirmation(db):
                 (candidate["name"] or "").strip() and (candidate["manifesto"] or "").strip()
                 for candidate in candidates
             )
-            closed = election["end_time"] < now
+            closed = election["end_time"] <= now
             has_ballots = db.execute(
                 "SELECT 1 FROM ballots WHERE election_id = ? LIMIT 1", (election["id"],)
             ).fetchone() is not None
@@ -331,10 +331,13 @@ def set_election_confirmation(election_id, is_confirmed):
 # UPDATE VOTER ELIGIBILITY STATUS
 # -------------------------------------------------------------------------
 def update_voter_status(election_id, voter_id, status):
-    get_db().execute(
-        "UPDATE voter_participation SET status = ? WHERE election_id = ? AND voter_id = ?",
-        (status, election_id, voter_id),
-    )
+    return get_db().execute(
+        """
+        UPDATE voter_participation SET status = ?
+        WHERE election_id = ? AND voter_id = ? AND status <> ?
+        """,
+        (status, election_id, voter_id, status),
+    ).rowcount
 
 
 # -------------------------------------------------------------------------

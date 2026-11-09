@@ -134,6 +134,63 @@ def test_missing_election_eligibility_actions_return_to_dashboard(client, action
 
 
 @pytest.mark.parametrize("status", ["APPROVED", "REJECTED"])
+@pytest.mark.parametrize("has_other_request", [False, True])
+def test_eligibility_decision_requires_a_request_for_this_election(client, status, has_other_request):
+    if has_other_request:
+        with client.application.app_context(), get_db():
+            other_election_id = database.create_election(
+                "Other election", "", "2100-01-01T00:00", "2100-01-02T00:00",
+            )
+            database.create_participation(other_election_id, 2)
+
+    login(client, "admin", "admin123")
+    before = election_management_snapshot(client)
+    route, data, _ = eligibility_action(status)
+    response = client.post(route, data=data)
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/election/1"
+    page = client.get(response.headers["Location"]).data
+    assert b"alert-danger" in page
+    assert b"Participation request not found for this election." in page
+    assert b"Voter eligibility updated" not in page
+    assert election_management_snapshot(client) == before
+
+
+@pytest.mark.parametrize("status,reversal", [("APPROVED", "REJECTED"), ("REJECTED", "APPROVED")])
+def test_eligibility_audits_decisions_and_reversals_but_skips_repeats(client, status, reversal):
+    seed_participation(client)
+    login(client, "admin", "admin123")
+    route, data, _ = eligibility_action(status)
+
+    response = client.post(route, data=data, follow_redirects=True)
+    assert response.request.path == "/election/1"
+    assert f"Voter eligibility updated to {status}.".encode() in response.data
+    with client.application.app_context():
+        assert database.find_participation(1, 2)["status"] == status
+
+    before_repeat = election_management_snapshot(client)
+    response = client.post(route, data=data, follow_redirects=True)
+    assert response.request.path == "/election/1"
+    assert b"alert-info" in response.data
+    assert f"Voter eligibility is already {status}.".encode() in response.data
+    assert b"Voter eligibility updated" not in response.data
+    assert election_management_snapshot(client) == before_repeat
+
+    response = client.post(route, data={"status": reversal}, follow_redirects=True)
+    assert response.request.path == "/election/1"
+    assert f"Voter eligibility updated to {reversal}.".encode() in response.data
+    with client.application.app_context():
+        participation = database.find_participation(1, 2)
+        assert participation["status"] == reversal
+        assert participation["has_voted"] == 0
+        logs = get_db().execute("SELECT admin_id, action FROM audit_logs ORDER BY id").fetchall()
+        assert [tuple(log) for log in logs] == [
+            (1, f"Set Voter ID 2 eligibility to {status} for Election ID 1"),
+            (1, f"Set Voter ID 2 eligibility to {reversal} for Election ID 1"),
+        ]
+
+
+@pytest.mark.parametrize("status", ["APPROVED", "REJECTED"])
 def test_eligibility_audit_failure_rolls_back_decision_and_audit(client, monkeypatch, status):
     seed_participation(client)
     login(client, "admin", "admin123")

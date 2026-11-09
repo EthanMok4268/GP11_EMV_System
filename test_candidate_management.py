@@ -102,13 +102,16 @@ def test_confirmed_schedule_starts_automatically_and_repeat_confirmation_is_noop
     assert b"already confirmed" in response.data
     assert election_management_snapshot(client) == before
     start = datetime.strptime(row(client, election_id)["start_time"], "%Y-%m-%dT%H:%M")
+    now = start - timedelta(seconds=1)
 
     class Clock(datetime):
         @classmethod
         def now(cls):
-            return start + timedelta(minutes=1)
+            return now
 
     monkeypatch.setattr(services, "datetime", Clock)
+    assert_state(client, election_id, "UPCOMING")
+    now = start
     assert_state(client, election_id, "ACTIVE")
     assert b"ACTIVE" in client.get("/").data
 
@@ -128,13 +131,22 @@ def test_drafts_are_private_and_cannot_receive_participation_or_votes(client):
     assert_state(client, election_id, "DRAFT")
 
 
-def test_expired_draft_can_be_rescheduled_but_not_confirmed_until_fixed(client):
+def test_expired_draft_can_be_rescheduled_but_not_confirmed_until_fixed(client, monkeypatch):
     election_id = draft(client)
     fields = {field: row(client, election_id)[field] for field in ("title", "description", "start_time", "end_time")}
     fields.update(start_time="2000-01-01T00:00", end_time="2000-01-02T00:00")
     assert b"Election updated successfully" in client.post(f"/admin/election/{election_id}/update", data=fields, follow_redirects=True).data
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls):
+            return datetime(2000, 1, 2)
+
+    monkeypatch.setattr(services, "datetime", Clock)
     assert_state(client, election_id, "DRAFT")
+    before = election_management_snapshot(client)
     assert b"end time has passed" in confirm(client, election_id).data
+    assert election_management_snapshot(client) == before
     fields.update(start_time="2100-01-01T00:00", end_time="2100-01-02T00:00")
     assert b"Election updated successfully" in client.post(f"/admin/election/{election_id}/update", data=fields, follow_redirects=True).data
     assert b"scheduled start time" in confirm(client, election_id).data
@@ -468,24 +480,37 @@ def test_deletion_waiting_for_confirmation_rechecks_effective_state(client, monk
         assert len(candidates(client, election_id)) == 2
 
 
-@pytest.mark.parametrize("newer_action", ["close", "reject"])
+@pytest.mark.parametrize("newer_action", ["close", "deadline", "reject"])
 def test_waiting_vote_rechecks_latest_election_and_eligibility(client, monkeypatch, newer_action):
     with client.application.app_context():
         db = get_db()
         db.execute("INSERT INTO voter_participation VALUES (1, 2, 'APPROVED', 0)")
         db.commit()
+    end = datetime.strptime(row(client, 1)["end_time"], "%Y-%m-%dT%H:%M")
+    now = end - timedelta(seconds=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls):
+            return now
+
+    monkeypatch.setattr(services, "datetime", Clock)
 
     def mutate(db):
+        nonlocal now
         if newer_action == "close":
             db.execute("UPDATE elections SET end_time = ? WHERE id = 1", (
-                (datetime.now() - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M"),
+                (end - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M"),
             ))
+        elif newer_action == "deadline":
+            now = end
         else:
             db.execute("UPDATE voter_participation SET status = 'REJECTED' WHERE election_id = 1 AND voter_id = 2")
 
     response = wait_for_locked_request(client.application, monkeypatch,
         "/election/1/vote", {"candidate_id": 1}, mutate, role="VOTER")
-    assert b"not currently active" in response.data if newer_action == "close" else b"not approved" in response.data
+    expected = b"not approved" if newer_action == "reject" else b"not currently active"
+    assert expected in response.data
     with client.application.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM ballots").fetchone()[0] == 0
         assert database.find_participation(1, 2)["has_voted"] == 0
@@ -536,10 +561,20 @@ def legacy_app(tmp_path, *, blocked=False):
     return create_app({"TESTING": True, "DATABASE": str(path)})
 
 
-def test_legacy_upgrade_preserves_history_and_only_backfills_once(tmp_path):
+@pytest.mark.parametrize("seconds_after_cutoff", [0, 60])
+def test_legacy_upgrade_preserves_history_and_only_backfills_once(tmp_path, monkeypatch, seconds_after_cutoff):
     app = legacy_app(tmp_path)
     with app.app_context():
         db = get_db()
+        end = datetime.strptime(database.find_election(1)["end_time"], "%Y-%m-%dT%H:%M")
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls):
+                return end + timedelta(seconds=seconds_after_cutoff)
+
+        monkeypatch.setattr(database, "datetime", Clock)
+        monkeypatch.setattr(services, "datetime", Clock)
         preserved = {table: [tuple(item) for item in db.execute(f"SELECT * FROM {table}")]
                      for table in ("users", "candidates", "voter_participation", "ballots", "audit_logs")}
         init_db()

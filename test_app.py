@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Event
 
 import pytest
-from election_system import create_app
+from election_system import create_app, services
 from election_system import db as database
 from election_system.db import get_db, init_db
 
@@ -120,17 +120,55 @@ def test_active_election_locks_candidate_management(client):
         assert get_db().execute("SELECT COUNT(*) FROM candidates WHERE election_id = 1").fetchone()[0] == 2
 
 
-def test_results_are_only_published_after_election_closes(client):
-    login(client, "voter1", "voter123")
-    assert b"Official Published Results" not in client.get("/election/1").data
+@pytest.mark.parametrize("seconds_after_cutoff", [0, 30])
+def test_voting_closes_and_results_are_published_at_cutoff(client, monkeypatch, seconds_after_cutoff):
+    cutoff = datetime(2026, 11, 9, 18)
+    now = cutoff - timedelta(seconds=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls):
+            return now
+
+    monkeypatch.setattr(services, "datetime", Clock)
+    client.post("/register", data={"username": "voter2", "password": "voter123"})
     with client.application.app_context():
         db = get_db()
-        db.execute("UPDATE elections SET start_time = ?, end_time = ? WHERE id = 1", ("2000-01-01T00:00", "2000-01-02T00:00"))
-        db.execute("INSERT INTO ballots (ballot_id, election_id, candidate_id) VALUES ('test-ballot', 1, 1)")
+        db.execute("UPDATE elections SET start_time = ?, end_time = ? WHERE id = 1", (
+            "2026-11-09T17:00", cutoff.isoformat(timespec="minutes"),
+        ))
+        late_voter_id = database.find_user("voter2")["id"]
+        db.executemany(
+            "INSERT INTO voter_participation (election_id, voter_id, status) VALUES (1, ?, 'APPROVED')",
+            [(2,), (late_voter_id,)],
+        )
         db.commit()
-    response = client.get("/election/1")
-    assert b"Official Published Results (Total Votes: 1)" in response.data
-    assert b"100.0%" in response.data
+
+    login(client, "voter1", "voter123")
+    response = client.post("/election/1/vote", data={"candidate_id": 1}, follow_redirects=True)
+    assert b"Vote successfully recorded!" in response.data
+    assert b"Official Published Results" not in response.data
+
+    login(client, "voter2", "voter123")
+    before_cutoff = client.get("/election/1").data
+    assert b"ACTIVE" in before_cutoff
+    assert b'name="candidate_id"' in before_cutoff
+    assert b"Official Published Results" not in before_cutoff
+
+    now = cutoff + timedelta(seconds=seconds_after_cutoff)
+    assert b"CLOSED" in client.get("/").data
+    after_cutoff = client.get("/election/1").data
+    assert b"CLOSED" in after_cutoff
+    assert b'name="candidate_id"' not in after_cutoff
+    assert b"Official Published Results (Total Votes: 1)" in after_cutoff
+    assert b"100.0%" in after_cutoff
+
+    response = client.post("/election/1/vote", data={"candidate_id": 2}, follow_redirects=True)
+    assert b"This election is not currently active" in response.data
+    with client.application.app_context():
+        ballots = get_db().execute("SELECT candidate_id FROM ballots WHERE election_id = 1").fetchall()
+        assert [ballot["candidate_id"] for ballot in ballots] == [1]
+        assert database.find_participation(1, late_voter_id)["has_voted"] == 0
 
 
 def test_ballot_failure_rolls_back_voter_participation(client):
