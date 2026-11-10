@@ -1,6 +1,6 @@
 **
 !Dockerfile
-!requirements-runtime.txt
+!requirements.txt
 !app.py
 !election_system/
 **/.env*

@@ -101,11 +101,8 @@ GP11_EMV_System/
 │   ├── services.py               # Election status and atomic voting rules
 │   ├── db.py                     # SQLite schema, migrations, connections and queries
 │   └── templates/                # Shared layout and page templates
-├── test_app.py                   # Automated Pytest suite
-├── test_candidate_management.py  # Candidate, readiness, migration and race tests
-├── test_election_creation.py     # Combined creation, empty-roster consent and rollback tests
-├── test_election_deletion.py     # Deletion, confirmation, cascade and rollback tests
-├── project_dependencies.txt      # Python package dependencies
+├── tests/                        # Pytest suite and shared fixtures
+├── requirements.txt              # Application, testing and deployment dependencies
 └── README.md                     # Project documentation
 ```
 
@@ -131,7 +128,7 @@ Set a new private `SECRET_KEY` when upgrading from the version with a built-in s
 ## 🚀 Installation & Setup Guide
 
 ### Prerequisites
-* **Python 3.9+** installed on Windows, macOS, or Linux.
+* **Python 3.10+** installed on Windows, macOS, or Linux.
 
 ### 1. Clone the repository
 ```powershell
@@ -158,7 +155,7 @@ py -m venv .venv
 
 ### 3. Install dependencies
 ```powershell
-python -m pip install -r project_dependencies.txt
+python -m pip install -r requirements.txt
 ```
 
 ### 4. Set the signing key

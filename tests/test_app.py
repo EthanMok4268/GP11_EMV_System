@@ -5,47 +5,20 @@ from datetime import datetime, timedelta
 from threading import Event
 
 import pytest
-from werkzeug.security import generate_password_hash
 
-from election_system import create_app, services
+from election_system import services
 from election_system import db as database
 from election_system.db import get_db, init_db
 
-ADMIN_PASSWORD = "AdminFixture8"
-VOTER_PASSWORD = "VoterFixture8"
+from .helpers import (
+    ADMIN_PASSWORD,
+    VOTER_PASSWORD,
+    election_management_snapshot,
+    login,
+    set_management_election_state,
+    wait_for_locked_request,
+)
 
-
-@pytest.fixture
-def client(tmp_path, form_client_class):
-    app = create_app({"TESTING": True, "DATABASE": str(tmp_path / "test.db")})
-    app.test_client_class = form_client_class
-    with app.app_context():
-        init_db()
-        now = datetime.now()
-        with get_db() as db:
-            db.executemany(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                [
-                    ("admin", generate_password_hash(ADMIN_PASSWORD), "ADMIN"),
-                    ("voter1", generate_password_hash(VOTER_PASSWORD), "VOTER"),
-                ],
-            )
-            election_id = db.execute(
-                "INSERT INTO elections (title, description, start_time, end_time, is_confirmed) "
-                "VALUES (?, ?, ?, ?, 1)",
-                (
-                    "Student Union Presidential Election", "Annual vote for the Student Union President.",
-                    (now - timedelta(hours=1)).isoformat(timespec="minutes"),
-                    (now + timedelta(days=1)).isoformat(timespec="minutes"),
-                ),
-            ).lastrowid
-            database.add_candidate(election_id, "Alice Wong", "24/7 library access and lower campus cafe prices.")
-            database.add_candidate(election_id, "Bob Chan", "More funding for sports clubs and student societies.")
-    return app.test_client()
-
-
-def login(client, username, password):
-    return client.post("/login", data={"username": username, "password": password}, follow_redirects=True)
 
 def test_rbac_blocks_voter_from_admin_routes(client):
     """TC-02: Verify voters cannot create elections."""
@@ -310,8 +283,6 @@ def test_close_election_rejects_inactive_or_missing_election(client, election_id
 
 @pytest.mark.parametrize("newer_action", ["close", "deadline"])
 def test_waiting_early_closure_rechecks_state_after_acquiring_write_lock(client, monkeypatch, newer_action):
-    from test_candidate_management import wait_for_locked_request
-
     with client.application.app_context():
         deadline = datetime.fromisoformat(database.find_election(1)["end_time"])
 
@@ -341,32 +312,12 @@ def test_waiting_early_closure_rechecks_state_after_acquiring_write_lock(client,
     assert election_management_snapshot(client) == expected
 
 
-def election_management_snapshot(client):
-    with client.application.app_context():
-        return list(get_db().iterdump())
-
-
 def election_update_fields(client, **changes):
     with client.application.app_context():
         row = get_db().execute("SELECT * FROM elections WHERE id = 1").fetchone()
         fields = {name: row[name] for name in ("title", "description", "start_time", "end_time")}
     fields.update(changes)
     return fields
-
-
-def set_management_election_state(client, state):
-    now = datetime.now()
-    start, end = {
-        "UPCOMING": (now + timedelta(days=10), now + timedelta(days=11)),
-        "ACTIVE": (now - timedelta(days=1), now + timedelta(days=1)),
-        "CLOSED": (now - timedelta(days=11), now - timedelta(days=10)),
-    }[state]
-    with client.application.app_context():
-        db = get_db()
-        db.execute("UPDATE elections SET start_time = ?, end_time = ? WHERE id = 1", (
-            start.strftime("%Y-%m-%dT%H:%M"), end.strftime("%Y-%m-%dT%H:%M"),
-        ))
-        db.commit()
 
 
 @pytest.mark.parametrize("state,editable", [("UPCOMING", True), ("ACTIVE", True), ("CLOSED", False)])

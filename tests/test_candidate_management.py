@@ -1,16 +1,21 @@
 """Candidate editing, explicit election readiness, migration and race regressions."""
 import re
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
-from threading import Event
 
 import pytest
 
 from election_system import create_app, db as database, services
 from election_system.db import get_db, init_db
-from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login
+
+from .helpers import (
+    ADMIN_PASSWORD,
+    VOTER_PASSWORD,
+    election_management_snapshot,
+    login,
+    wait_for_locked_request,
+)
 
 
 def draft(client, *, future=False, count=2):
@@ -387,43 +392,6 @@ def test_candidate_edit_forms_are_independent_and_required(client):
     parser = FormParser()
     parser.feed(client.get(f"/election/{election_id}").data.decode())
     assert parser.edits == 2 and parser.form is None
-
-
-def wait_for_locked_request(app, monkeypatch, route, data, mutate, role="ADMIN"):
-    """Synchronize an actual SQLite lock wait without timing-based sleeps."""
-    blocker = sqlite3.connect(app.config["DATABASE"])
-    waiting = Event()
-    real_connect = sqlite3.connect
-
-    def traced_connect(*args, **kwargs):
-        connection = real_connect(*args, **kwargs)
-        connection.set_trace_callback(lambda sql: waiting.set() if sql.strip().upper().startswith("BEGIN IMMEDIATE") else None)
-        return connection
-
-    monkeypatch.setattr(sqlite3, "connect", traced_connect)
-
-    def submit():
-        with app.test_client() as requester:
-            if role == "ADMIN":
-                login(requester, "admin", ADMIN_PASSWORD)
-            else:
-                login(requester, "voter1", VOTER_PASSWORD)
-            return requester.post(route, data=data, follow_redirects=True)
-
-    try:
-        blocker.execute("BEGIN IMMEDIATE")
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(submit)
-            try:
-                assert waiting.wait(timeout=3)
-                assert not future.done()
-                mutate(blocker)
-                blocker.commit()
-            finally:
-                blocker.rollback()
-            return future.result(timeout=5)
-    finally:
-        blocker.close()
 
 
 @pytest.mark.parametrize("newer_action", ["update", "delete", "start"])

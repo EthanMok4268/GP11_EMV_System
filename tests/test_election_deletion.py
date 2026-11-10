@@ -9,8 +9,13 @@ from werkzeug.security import generate_password_hash
 
 from election_system import db as database
 from election_system.db import get_db, init_db
-from test_app import (
-    ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login, set_management_election_state,
+
+from .helpers import (
+    ADMIN_PASSWORD,
+    VOTER_PASSWORD,
+    election_management_snapshot,
+    login,
+    set_management_election_state,
 )
 
 

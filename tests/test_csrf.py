@@ -5,7 +5,8 @@ import pytest
 from itsdangerous import TimestampSigner
 
 from election_system.db import get_db
-from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login
+
+from .helpers import ADMIN_PASSWORD, VOTER_PASSWORD, election_management_snapshot, login
 
 
 class PostForms(HTMLParser):

@@ -89,9 +89,8 @@ GP11_EMV_System/
 │   ├── services.py               # Election status and atomic voting rules
 │   ├── db.py                     # SQLite schema, migrations, connections and queries
 │   └── templates/                # Shared layout and page templates
-├── test_app.py                   # Automated Pytest suite
-├── test_candidate_management.py  # Candidate, readiness, migration and race tests
-├── project_dependencies.txt      # Python package dependencies
+├── tests/                        # Pytest suite and shared fixtures
+├── requirements.txt              # Application, testing and deployment dependencies
 └── README.md                     # Project documentation
 ```
 
@@ -115,7 +114,7 @@ Before upgrading, stop older application processes and make a backup of the SQLi
 ## 🚀 Installation & Setup Guide
 
 ### Prerequisites
-* **Python 3.9+** installed on Windows, macOS, or Linux.
+* **Python 3.10+** installed on Windows, macOS, or Linux.
 
 ### 1. Clone the repository
 ```powershell
@@ -142,7 +141,7 @@ py -m venv .venv
 
 ### 3. Install dependencies
 ```powershell
-python -m pip install -r project_dependencies.txt
+python -m pip install -r requirements.txt
 ```
 
 ### 4. Set the signing key

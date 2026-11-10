@@ -6,10 +6,15 @@ import pytest
 
 from election_system import db as database, services
 from election_system.db import get_db
-from test_app import (
-    ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login, set_management_election_state,
+
+from .helpers import (
+    ADMIN_PASSWORD,
+    VOTER_PASSWORD,
+    election_management_snapshot,
+    login,
+    set_management_election_state,
+    wait_for_locked_request,
 )
-from test_candidate_management import wait_for_locked_request
 
 
 def eligibility_action(action, election_id=1):

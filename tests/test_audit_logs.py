@@ -5,7 +5,8 @@ import pytest
 
 from election_system import db as database
 from election_system.db import get_db
-from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, login
+
+from .helpers import ADMIN_PASSWORD, VOTER_PASSWORD, login
 
 
 AUDIT_URL = "/admin/audit-logs"

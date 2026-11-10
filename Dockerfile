@@ -11,8 +11,8 @@ RUN apt-get update \
     && install -d -m 0750 -o app -g app /data
 
 WORKDIR /app
-COPY requirements-runtime.txt .
-RUN python -m pip install --no-cache-dir -r requirements-runtime.txt gunicorn==26.2.0
+COPY requirements.txt .
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 COPY election_system/ election_system/

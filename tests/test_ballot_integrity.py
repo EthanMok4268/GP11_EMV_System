@@ -6,7 +6,6 @@ from threading import Barrier
 import pytest
 
 from election_system import create_app, db as database
-from test_app import client
 
 
 def legacy_ballot_app(tmp_path, *, confirmed=True):
