@@ -6,6 +6,7 @@
             <div class="card-body p-4">
                 <h4 class="card-title mb-3">Sign In</h4>
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required></div>
                     <div class="mb-3"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
                     <button class="btn btn-primary w-100">Login</button>

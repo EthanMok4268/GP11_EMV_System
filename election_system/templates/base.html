@@ -21,7 +21,10 @@
             {% if session.get('role') == 'ADMIN' %}
             <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-outline-light btn-sm"{% if request.endpoint == 'admin.audit_logs' %} aria-current="page"{% endif %}>Audit Log</a>
             {% endif %}
-            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm">Logout</a>
+            <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-light btn-sm">Logout</button>
+            </form>
         </div>
         {% endif %}
     </div>

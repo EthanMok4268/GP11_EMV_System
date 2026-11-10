@@ -134,7 +134,7 @@ def register():
 # -------------------------------------------------------------------------
 # ROUTES: LOGOUT
 # -------------------------------------------------------------------------
-@bp.route("/logout")
+@bp.post("/logout")
 def logout():
     session.clear()
     flash("You have been logged out.", "info")

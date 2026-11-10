@@ -16,8 +16,9 @@ VOTER_PASSWORD = "VoterFixture8"
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, form_client_class):
     app = create_app({"TESTING": True, "DATABASE": str(tmp_path / "test.db")})
+    app.test_client_class = form_client_class
     with app.app_context():
         init_db()
         now = datetime.now()
@@ -40,8 +41,7 @@ def client(tmp_path):
             ).lastrowid
             database.add_candidate(election_id, "Alice Wong", "24/7 library access and lower campus cafe prices.")
             database.add_candidate(election_id, "Bob Chan", "More funding for sports clubs and student societies.")
-    with app.test_client() as client:
-        yield client
+    return app.test_client()
 
 
 def login(client, username, password):
@@ -95,7 +95,7 @@ def test_registration_login_and_logout(client):
     assert b"Welcome back, new_voter" in login(client, "new_voter", "secret123").data
     response = client.post("/register", data={"username": "new_voter", "password": "secret123"})
     assert b"Username already registered" in response.data
-    client.get("/logout")
+    client.post("/logout")
     assert client.get("/").headers["Location"] == "/login"
 
 

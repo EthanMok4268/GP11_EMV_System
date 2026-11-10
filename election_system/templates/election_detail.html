@@ -15,6 +15,7 @@
                 <span class="badge {% if status == 'DRAFT' %}bg-primary{% elif status == 'UPCOMING' %}bg-warning text-dark{% elif status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %} fs-6">{{ status }}</span>
                 {% if session['role'] == 'ADMIN' and status == 'ACTIVE' %}
                 <form method="POST" action="{{ url_for('admin.close_election_early', election_id=election.id) }}" class="d-inline ms-2" onsubmit="return confirm('Are you sure you want to end this election early and publish results?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-danger">End Election Early</button>
                 </form>
                 {% endif %}
@@ -35,6 +36,7 @@
 {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING', 'CLOSED') %}
 <dialog id="election-deletion-dialog" class="election-deletion-dialog border-0 rounded shadow p-0" aria-labelledby="election-deletion-title" aria-describedby="election-deletion-warning election-deletion-audit">
     <form method="POST" action="{{ url_for('admin.delete_election', election_id=election.id) }}" id="election-deletion-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="deletion_token" value="{{ deletion_token }}">
         <div class="modal-header p-3 border-bottom">
             <h4 class="modal-title fs-5" id="election-deletion-title">Delete Election</h4>
@@ -83,6 +85,7 @@
                     {% elif status in ('UPCOMING', 'ACTIVE') %}
                         <div class="alert alert-info">You must request eligibility approval before voting in this election.</div>
                         <form method="POST" action="{{ url_for('voting.request_participation', election_id=election.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button class="btn btn-primary">Request Participation</button>
                         </form>
                     {% endif %}
@@ -90,6 +93,7 @@
 
                 {% if session['role'] == 'VOTER' %}
                 <form method="POST" action="{{ url_for('voting.cast_vote', election_id=election.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% endif %}
                     {% for c in candidates %}
                     <div class="border rounded p-3 mb-2">
@@ -103,6 +107,7 @@
                         </div>
                         {% if session['role'] == 'ADMIN' and status in ('DRAFT', 'UPCOMING') %}
                         <form method="POST" action="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="m-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" formaction="{{ url_for('admin.delete_candidate', election_id=election.id, cand_id=c.id) }}" class="btn btn-sm btn-outline-danger">Remove</button>
                         </form>
                         {% endif %}
@@ -111,6 +116,7 @@
                         <details class="mt-2">
                             <summary class="text-primary">Edit</summary>
                             <form method="POST" action="{{ url_for('admin.update_candidate', election_id=election.id, cand_id=c.id) }}" class="mt-3">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="edit_token" value="{{ candidate_tokens[c.id] }}">
                                 <div class="mb-2">
                                     <label for="candidate-name-{{ c.id }}" class="form-label small">Candidate Name</label>
@@ -158,6 +164,7 @@
                 </ul>
                 {% endif %}
                 <form method="POST" action="{{ url_for('admin.confirm_election', election_id=election.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="confirmation_token" value="{{ confirmation_token }}">
                     <button type="submit" class="btn btn-success btn-sm w-100"{% if readiness_issues %} disabled{% endif %}>Confirm Election</button>
                 </form>
@@ -180,6 +187,7 @@
                 <p class="text-muted small" id="edit-election-time-help">Prepare this draft and update its schedule before confirming. An expired draft can be rescheduled.</p>
                 {% endif %}
                 <form method="POST" action="{{ url_for('admin.update_election', election_id=election.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-2">
                         <label for="edit-election-title" class="form-label small">Title</label>
                         <input id="edit-election-title" type="text" name="title" value="{{ election.title }}" class="form-control form-control-sm" required>
@@ -209,6 +217,7 @@
             <div class="card-header fw-bold">Add Candidate</div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('admin.add_candidate', election_id=election.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-2"><input type="text" name="name" placeholder="Candidate Name" class="form-control form-control-sm" required></div>
                     <div class="mb-2"><input type="text" name="manifesto" placeholder="Manifesto / Bio" class="form-control form-control-sm" required></div>
                     <button class="btn btn-sm btn-primary w-100">Add Candidate</button>
@@ -234,6 +243,7 @@
                     </div>
                     {% if status != 'CLOSED' and not req.has_voted %}
                     <form method="POST" action="{{ url_for('admin.update_voter_status', election_id=election.id, voter_id=req.voter_id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button name="status" value="APPROVED" class="btn btn-xs btn-success btn-sm">Approve</button>
                         <button name="status" value="REJECTED" class="btn btn-xs btn-danger btn-sm">Reject</button>
                     </form>

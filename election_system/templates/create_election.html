@@ -34,6 +34,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('admin.create_election') }}" id="election-creation-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="row g-4 align-items-start">
             <section class="col-lg-5" aria-labelledby="election-details-title">
                 <div class="card shadow-sm border-0">

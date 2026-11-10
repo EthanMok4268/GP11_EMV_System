@@ -2,7 +2,8 @@
 import os
 import secrets
 
-from flask import Flask
+from flask import Flask, g, render_template
+from flask_wtf.csrf import CSRFError, CSRFProtect
 
 
 # -------------------------------------------------------------------------
@@ -29,6 +30,18 @@ def create_app(test_config=None):
         or secret_key.strip() == "dev-secret-key-change-in-production"
     ):
         raise RuntimeError("Set SECRET_KEY to a randomly generated value of at least 32 characters.")
+
+    CSRFProtect(app)
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(_error):
+        return render_template("csrf_error.html"), 400, {"Cache-Control": "no-store"}
+
+    @app.after_request
+    def prevent_csrf_token_caching(response):
+        if app.config["WTF_CSRF_FIELD_NAME"] in g:
+            response.cache_control.no_store = True
+        return response
 
     from . import db
     db.init_app(app)

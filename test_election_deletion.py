@@ -82,7 +82,7 @@ def test_dialog_escapes_election_title_and_loading_the_page_does_not_delete(clos
 def test_deletion_requires_logged_in_administrator(deletable_client, role):
     client = deletable_client
     data = deletion_data(client)
-    client.get("/logout")
+    client.post("/logout")
     if role == "VOTER":
         login(client, "voter1", VOTER_PASSWORD)
     before = election_management_snapshot(client)
@@ -125,7 +125,7 @@ def test_deletion_token_is_bound_to_election_admin_and_session(deletable_client,
                            "VALUES ('Other closed election', '2000-01-01T00:00', '2000-01-02T00:00', 1)")
         data["deletion_token"] = deletion_data(client, 2)["deletion_token"]
     elif invalid == "other_session":
-        client.get("/logout")
+        client.post("/logout")
         login(client, "admin", ADMIN_PASSWORD)
         assert deletion_data(client)["deletion_token"] != data["deletion_token"]
     elif invalid == "other_admin":

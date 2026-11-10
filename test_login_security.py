@@ -15,9 +15,10 @@ ADMIN_PASSWORD = "Private-test-password-2026"
 
 
 @pytest.fixture
-def secure_app(tmp_path, monkeypatch):
+def secure_app(tmp_path, monkeypatch, form_client_class):
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(32))
     app = create_app({"DATABASE": str(tmp_path / "secure.db")})
+    app.test_client_class = form_client_class
     with app.app_context():
         init_db()
     return app
