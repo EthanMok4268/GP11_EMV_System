@@ -1,0 +1,10 @@
+{
+  "repository": "EthanMok4268/GP11_EMV_System",
+  "branch": "master",
+  "workflow": "ci.yml",
+  "project": "gp11_emv_system",
+  "volume": "gp11_emv_system_election-data",
+  "env_file": "/home/ryan/GP11_EMV_System/.env",
+  "state_dir": "/home/ryan/.local/share/gp11-deploy",
+  "token_file": "/home/ryan/.config/gp11-deploy/github-token"
+}

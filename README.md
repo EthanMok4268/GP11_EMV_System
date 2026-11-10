@@ -268,6 +268,100 @@ If the tunnel fails to connect, check its logs, token, and outbound connectivity
 
 ---
 
+## Automatic updates from GitHub
+
+The `ci.yml` GitHub Actions workflow tests Python 3.14, validates the Compose configuration with synthetic secrets, and builds the Docker image on pushes to `master` and pull requests targeting `master`. Pull requests only run CI. The deployment host checks GitHub every 60 seconds and deploys the latest `master` commit only after that commit's push CI succeeds. The manual workflow button can rerun validation on `master`; deployment still requires successful push CI. CI uses GitHub-hosted runners; no inbound SSH, webhook endpoint, or self-hosted runner is needed.
+
+### Install on the current Ubuntu host
+
+First merge the workflow and deployment tools to `master`, and wait for `ci.yml` to pass. The installer requires an existing web container and database volume, Docker access for `ryan`, Python 3, Git, Docker Compose, and a host running systemd. The existing application `.env` remains private and is not uploaded to GitHub.
+
+Use the user service on this Ubuntu host. Login lingering is already enabled for `ryan`, so the user manager and timer run after boot without requiring an interactive login or sudo. The installer verifies lingering before enabling the timer; it does not change the host's login settings.
+
+```bash
+bash /home/ryan/GP11_EMV_System/scripts/install-deploy.sh --user-service --user ryan
+systemctl --user status gp11-deploy.timer
+```
+
+The installer checks the latest remote commit's CI before enabling the timer. Use `--no-enable` to install without starting automatic updates; rerun without that option after CI succeeds. Installation does not restart application containers. Reinstall after changes to the deployment tool or service files; saved host configuration and the optional token are preserved unless an overriding option is explicitly provided.
+
+For a system-wide service managed by an administrator, run `sudo bash /home/ryan/GP11_EMV_System/scripts/install-deploy.sh --user ryan` instead. That mode installs the tool under `/usr/local/lib/gp11-deploy`, uses `/etc/systemd/system`, and requires sudo for timer management. Choose one service mode; do not run both timers. The examples below use the current host's user-service mode.
+
+The defaults match this host's existing deployment:
+
+| Setting | Default |
+| :--- | :--- |
+| Repository / branch / workflow | `EthanMok4268/GP11_EMV_System` / `master` / `ci.yml` |
+| Compose project | `gp11_emv_system` |
+| SQLite data volume | `gp11_emv_system_election-data` |
+| Application environment | `/home/ryan/GP11_EMV_System/.env` |
+| Host configuration | `/home/ryan/.config/gp11-deploy/config.json` |
+| Checkout, state and backups | `/home/ryan/.local/share/gp11-deploy` |
+| Installed deployment tool (user service) | `/home/ryan/.local/lib/gp11-deploy/deploy.py` |
+| User service and timer | `/home/ryan/.config/systemd/user/gp11-deploy.service` and `gp11-deploy.timer` |
+
+The tool runs as `ryan` and downloads code into its own checkout; it does not pull, reset, or discard changes in the development directory. It fixes the existing project and data volume names, keeps Cloudflare Tunnel running, and only replaces `web`. Do not manually deploy from the automatic checkout while the timer is active.
+
+GitHub's public workflow API works without a token. If needed, create a fine-grained token with only **Actions: read** for this repository and save its value in `/home/ryan/.config/gp11-deploy/github-token`, owned by `ryan` with mode `600`. Do not place the token in the repository, application `.env`, command arguments, or logs. API failures, rate limits, missing CI, and unsuccessful CI leave the running application unchanged. [GitHub workflow API](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow) · [API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
+
+### Check, pause and resume updates
+
+Run the following as `ryan`. Define this helper in your current shell:
+
+```bash
+gp11_deploy() {
+  python3 /home/ryan/.local/lib/gp11-deploy/deploy.py \
+    --config /home/ryan/.config/gp11-deploy/config.json "$@"
+}
+
+# Show deployed commit, pause/failure state and available backups.
+gp11_deploy status
+
+# Check immediately, using the same CI and deployment lock as the timer.
+gp11_deploy check
+
+# Pause before manual maintenance.
+gp11_deploy pause
+
+# Resume after maintenance. The next timer tick checks GitHub again.
+gp11_deploy resume
+
+# View recent deployment output, including the commit and CI run URL.
+journalctl --user -u gp11-deploy.service -n 100 --no-pager
+```
+
+If an operation already holds the deployment lock, the command reports that another operation is running; wait for it to finish and run `pause` again. `systemctl --user disable --now gp11-deploy.timer` disables scheduled checks across reboots. Stop the timer before making manual container or database changes and wait for `systemctl --user status gp11-deploy.service` to show the service is inactive; do not interrupt a deployment during its backup or container switch. To enable the schedule again, rerun the installer, which rechecks CI. With lingering enabled, the user timer starts automatically after reboot. Network or Docker startup failures are retried on a later timer tick. For system-wide mode, use `sudo systemctl` and `journalctl` without `--user`, and use the tool under `/usr/local/lib/gp11-deploy`.
+
+### Backups and failed deployments
+
+The old web stays online while the new image builds. Before switching, the tool rechecks the remote commit, stops web, and backs up SQLite. It then starts the new web and waits up to 120 seconds for the existing `/login` healthcheck. This switch can briefly interrupt requests. A build failure leaves the old web running; a backup failure restarts the original container. Only a healthy deployment updates the successful commit marker.
+
+Backups are stored below `/home/ryan/.local/share/gp11-deploy/backups`, outside the checkout. The latest seven normal deployment backups are retained. Failed-deployment backups and their saved image are kept for manual recovery. Deployment never deletes the database volume or runs `docker compose down -v`.
+
+If the new web fails to start or become healthy, automatic deployment pauses and the failed web is stopped. Check `gp11_deploy status` and the journal. Initialization may have migrated the database, so switching back to an old image alone is not a safe general recovery. Use the restore procedure below for a paired image/database recovery. If you instead repair the configuration and manually recover a healthy web against the current database, clear the failure marker and check for a corrected commit with:
+
+```bash
+gp11_deploy retry
+gp11_deploy check
+```
+
+`retry` clears the failure/pause marker; it does not itself restart a stopped web or bypass CI.
+
+To restore a saved database and its previous image, first stop scheduled checks and pause updates. The following command **replaces the current database**, losing records accepted after the selected backup. Choose the backup listed by `status` only after checking which records must be retained.
+
+```bash
+systemctl --user stop gp11-deploy.timer
+gp11_deploy pause
+gp11_deploy status
+gp11_deploy restore --backup '<backup-name>' --confirm-data-loss
+```
+
+Restore stops web, restores the selected snapshot, and starts its saved previous image with a healthcheck. Automatic deployment remains paused. After verifying the restored application and data, use `gp11_deploy resume` and `systemctl --user start gp11-deploy.timer`. Keep the pause in place if the latest `master` commit is still faulty.
+
+Deployment tests use temporary state directories and mocked GitHub/Docker commands. Real container rehearsals must use a separate Compose project, synthetic credentials, and an independent volume; never point them at `gp11_emv_system_election-data`.
+
+---
+
 ## 🧪 Running Automated Tests
 
 The automated test suite uses temporary SQLite databases to verify authentication, role-based access, election and candidate management, template escaping, result visibility, atomic voting, duplicate prevention, database reinitialization, and early election closure.

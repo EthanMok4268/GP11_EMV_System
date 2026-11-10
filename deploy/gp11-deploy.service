@@ -1,0 +1,16 @@
+[Unit]
+Description=Check GitHub CI and deploy the GP11 voting application
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+UMask=0077
+ExecStart=/usr/bin/python3 -u "@INSTALL_DIR@/deploy.py" --config "@CONFIG_DIR@/config.json" check
+TimeoutStartSec=30min
+StandardOutput=journal
+StandardError=journal
+
