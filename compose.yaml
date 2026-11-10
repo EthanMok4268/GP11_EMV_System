@@ -1,0 +1,41 @@
+services:
+  web:
+    build: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      DATABASE: /data/election_system.db
+      TZ: Asia/Hong_Kong
+    volumes:
+      - election-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          from urllib.request import urlopen
+          with urlopen('http://127.0.0.1:8000/login', timeout=3) as response:
+              response.read()
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    profiles: [tunnel]
+    command: [tunnel, --no-autoupdate, run, --token-file, /run/secrets/tunnel_token]
+    secrets:
+      - tunnel_token
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  election-data:
+
+secrets:
+  tunnel_token:
+    environment: TUNNEL_TOKEN

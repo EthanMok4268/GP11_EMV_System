@@ -195,6 +195,70 @@ For local use, open `http://127.0.0.1:5000` and sign in with the administrator a
 
 ---
 
+## Host the public demo with Docker and Cloudflare Tunnel
+
+Run the commands below from the repository in Ubuntu WSL. Use your existing Docker engine and run `docker info` from Ubuntu to confirm it is reachable. If Docker Engine is installed in Ubuntu and the service is stopped on a systemd-enabled distro, run `sudo systemctl start docker`. If you use Docker Desktop, start it with its WSL 2 engine and enable integration for Ubuntu. [WSL systemd](https://learn.microsoft.com/en-us/windows/wsl/systemd) · [Docker Desktop WSL integration](https://docs.docker.com/desktop/features/wsl/)
+
+Choose an unused subdomain such as `vote.example.com` in a Cloudflare-managed domain you control. [Cloudflare Tunnel setup](https://developers.cloudflare.com/tunnel/get-started/)
+
+### Start the app and set up the administrator
+
+If `.env` has no `SECRET_KEY` value, create the file if needed and generate a private signing key. If a key is already set, continue to the Compose commands below with that key.
+
+```bash
+if [ ! -e .env ]; then
+  (umask 077; cp .env.example .env)
+fi
+chmod 600 .env
+docker run --rm python:3.14-slim python -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+Save the generated value as `SECRET_KEY` in `.env` and keep it across restarts. Leave `TUNNEL_TOKEN` empty until you create the tunnel. Clear any previously exported values so Compose reads `.env`.
+
+```bash
+unset SECRET_KEY TUNNEL_TOKEN
+docker compose up -d --build --wait web
+docker compose exec web python app.py --admin
+```
+
+Choose a unique administrator password. The app initializes a fresh database at `/data/election_system.db` on the `election-data` volume and uses Hong Kong time for election schedules. Use synthetic accounts, elections, and ballots in the public demo.
+
+### Publish the site
+
+1. In the Cloudflare dashboard, open **Networking > Tunnels** and create a named tunnel. Copy the token value that follows `--token` into the `TUNNEL_TOKEN` entry in `.env`. [Cloudflare tunnel tokens](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/)
+2. Start the connector and check that the tunnel status becomes **Healthy**.
+
+   ```bash
+   docker compose --profile tunnel up -d --force-recreate cloudflared
+   ```
+
+3. Under **Routes**, add a **Published application** for your chosen subdomain with service URL `http://web:8000`. The connector reaches `web` over the Compose network. The tunnel carries requests from Cloudflare over a connection the connector opens from your PC, so no router port forwarding is needed. [Publish a Cloudflare application](https://developers.cloudflare.com/tunnel/get-started/#publish-an-application)
+4. In your domain's **Redirect Rules**, add a Single Redirect from `http://vote.example.com/*` to `https://vote.example.com/${1}`, using your chosen hostname in both values. Use status `301` and enable **Preserve query string**. Visitors can open the demo and register through Flask. Administrator actions require the administrator role. [Cloudflare Single Redirects](https://developers.cloudflare.com/rules/url-forwarding/single-redirects/settings/)
+
+Before sharing the link, open the HTTP URL on a phone using cellular data and confirm it redirects to HTTPS. Create and confirm a demo election with two candidates. Register a demo voter and request eligibility, approve the request as the administrator, then cast a ballot as the voter once the election is active. Confirm that the voter account cannot open the administrator pages.
+
+### Manage the deployment
+
+```bash
+# Check container status and recent logs.
+docker compose --profile tunnel ps
+docker compose --profile tunnel logs --tail 100 web cloudflared
+
+# Take the public demo offline while leaving the app running.
+docker compose --profile tunnel stop cloudflared
+
+# Remove both containers and retain the database volume.
+docker compose --profile tunnel down
+```
+
+Run `docker compose --profile tunnel up -d --build` to bring the demo back. Check that the test election and ballot survived container recreation. The `down -v` option deletes the database volume.
+
+Keep the PC awake and online while the demo is available. Docker restarts the existing containers when the engine starts, unless you stopped them. For Docker Engine inside Ubuntu, keep Ubuntu WSL running during the demo. After a Windows reboot, open Ubuntu again and check `docker info`. If you use Docker Desktop, enable **Start Docker Desktop when you sign in to your computer** to resume after Windows sign-in. [Docker restart policies](https://docs.docker.com/engine/containers/start-containers-automatically/) · [WSL systemd](https://learn.microsoft.com/en-us/windows/wsl/systemd#how-does-enabling-systemd-affect-wsl-architecture) · [Docker Desktop startup settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/)
+
+If the tunnel fails to connect, check its logs, token, and outbound connectivity on port `7844`. If Cloudflare returns a `502` with a healthy tunnel, check the `web` container logs and confirm the route uses `http://web:8000`. [Cloudflare Tunnel troubleshooting](https://developers.cloudflare.com/tunnel/troubleshooting/)
+
+---
+
 ## 🧪 Running Automated Tests
 
 The automated test suite uses temporary SQLite databases to verify authentication, role-based access, election and candidate management, template escaping, result visibility, atomic voting, duplicate prevention, database reinitialization, and early election closure.

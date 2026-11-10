@@ -1,4 +1,4 @@
-"""Administrator setup and recovery through the local command line."""
+"""Database initialization and administrator setup through the command line."""
 import secrets
 import sqlite3
 import warnings
@@ -17,11 +17,12 @@ from election_system import create_app, db as database
 def cli(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SECRET_KEY", secrets.token_urlsafe(32))
+    monkeypatch.delenv("DATABASE", raising=False)
 
     import app
 
     def unexpected_server(*args, **kwargs):
-        pytest.fail("Administrator setup started the HTTP server")
+        pytest.fail("A setup command started the HTTP server")
 
     monkeypatch.setattr(Flask, "run", unexpected_server)
     return app, tmp_path / "election_system.db"
@@ -46,6 +47,35 @@ def test_local_server_initializes_without_demo_data(cli, monkeypatch):
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM elections").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("database_name", [None, "", "configured.db"])
+def test_cli_initializes_database_without_prompting_and_preserves_records(cli, monkeypatch, database_name):
+    command, default_path = cli
+    path = default_path.with_name(database_name) if database_name else default_path
+    if database_name is not None:
+        monkeypatch.setenv("DATABASE", str(path) if database_name else "")
+    prompt_answers(monkeypatch, [], [])
+
+    command.main(["--init-db"])
+    assert path.is_file()
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+        db.execute("INSERT INTO users (username, password_hash, role) VALUES ('existing', 'test-hash', 'VOTER')")
+
+    command.main(["--init-db"])
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT username FROM users").fetchall() == [("existing",)]
+    if database_name:
+        assert not default_path.exists()
+
+
+def test_cli_rejects_combining_setup_modes(cli):
+    command, path = cli
+    with pytest.raises(SystemExit) as error:
+        command.main(["--init-db", "--admin"])
+    assert error.value.code == 2
+    assert not path.exists()
 
 
 def test_cli_creates_first_admin_and_lists_existing_admin_by_default(cli, monkeypatch, capsys):

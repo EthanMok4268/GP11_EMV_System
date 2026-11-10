@@ -15,7 +15,7 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=True,
-        DATABASE="election_system.db",
+        DATABASE=os.environ.get("DATABASE") or "election_system.db",
     )
     if test_config is not None:
         app.config.update(test_config)

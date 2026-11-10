@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!requirements-runtime.txt
+!app.py
+!election_system/
+**/.env*
+**/*.db
+**/*.db-*
+**/__pycache__/
+**/*.pyc

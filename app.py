@@ -1,4 +1,4 @@
-"""Local server and administrator setup entry points."""
+"""Local server, database initialization, and administrator setup."""
 import argparse
 import sqlite3
 import warnings
@@ -55,24 +55,28 @@ def _configure_administrator():
 # -------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--admin", action="store_true", help="create or manage an administrator account")
+    setup = parser.add_mutually_exclusive_group()
+    setup.add_argument("--admin", action="store_true", help="create or manage an administrator account")
+    setup.add_argument("--init-db", action="store_true", help="initialize the database and exit")
     options = parser.parse_args(argv)
+    run_server = not (options.admin or options.init_db)
 
     try:
-        local_app = create_app() if options.admin else create_app({"SESSION_COOKIE_SECURE": False})
+        local_app = create_app({"SESSION_COOKIE_SECURE": False} if run_server else None)
         with local_app.app_context():
             db.init_db()
             if options.admin:
                 _configure_administrator()
-                return
     except (EOFError, KeyboardInterrupt):
-        parser.exit(1, "Administrator setup cancelled.\n")
+        setup_name = "Administrator setup" if options.admin else "Database initialization"
+        parser.exit(1, f"{setup_name} cancelled.\n")
     except (ValueError, RuntimeError) as error:
         parser.exit(1, f"Error: {error}\n")
     except sqlite3.Error:
         parser.exit(1, "Error: Unable to access the election database.\n")
 
-    local_app.run(host="127.0.0.1", port=5000, debug=False)
+    if run_server:
+        local_app.run(host="127.0.0.1", port=5000, debug=False)
 
 
 if __name__ == "__main__":
