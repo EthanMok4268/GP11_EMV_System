@@ -228,7 +228,7 @@ class Deployer:
         if not (self.checkout_dir / ".git").is_dir():
             if self.checkout_dir.exists():
                 raise DeployError("Deployment checkout exists but is not a Git repository")
-            self.command(["git", "clone", "--no-checkout", "--", 
+            self.command(["git", "clone", "--no-checkout", "--",
                           f"https://github.com/{self.config.repository}.git", self.checkout_dir])
         self.command(["git", "-C", self.checkout_dir, "fetch", "--no-tags", "origin",
                       f"refs/heads/{self.config.branch}"], timeout=60)

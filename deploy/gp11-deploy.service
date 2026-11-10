@@ -13,4 +13,3 @@ ExecStart=/usr/bin/python3 -u "@INSTALL_DIR@/deploy.py" --config "@CONFIG_DIR@/c
 TimeoutStartSec=30min
 StandardOutput=journal
 StandardError=journal
-
