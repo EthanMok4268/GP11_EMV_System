@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a tested GP11 master commit every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=1s
+Unit=gp11-deploy.service
+
+[Install]
+WantedBy=timers.target
