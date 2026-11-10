@@ -19,4 +19,4 @@ COPY election_system/ election_system/
 
 USER app
 EXPOSE 8000
-CMD ["sh", "-ec", "python app.py --init-db && exec gunicorn --bind 0.0.0.0:8000 --workers 1 --threads 2 app:app"]
+CMD ["sh", "-ec", "python app.py --init-db && exec gunicorn --no-control-socket --bind 0.0.0.0:8000 --workers 1 --threads 2 app:app"]

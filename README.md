@@ -223,6 +223,18 @@ docker compose exec web python app.py --admin
 
 Choose a unique administrator password. The app initializes a fresh database at `/data/election_system.db` on the `election-data` volume and uses Hong Kong time for election schedules. Use synthetic accounts, elections, and ballots in the public demo.
 
+### Manage administrators after deployment
+
+Run this command from the project directory to list administrator usernames and optionally update an existing administrator's username and password:
+
+```bash
+docker compose exec web python app.py --admin
+```
+
+Enter `y` when prompted to update credentials, choose a listed administrator, and follow the prompts. Leave the new username blank to keep the current one. Password input is hidden and must contain at least eight characters, including an English letter and a digit.
+
+On a fresh database, the same command creates the first administrator. Once an administrator exists, it cannot add another administrator. Website registration creates voter accounts only.
+
 ### Publish the site
 
 1. In the Cloudflare dashboard, open **Networking > Tunnels** and create a named tunnel. Copy the token value that follows `--token` into the `TUNNEL_TOKEN` entry in `.env`. [Cloudflare tunnel tokens](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/)
