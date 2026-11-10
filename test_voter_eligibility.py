@@ -6,7 +6,9 @@ import pytest
 
 from election_system import db as database, services
 from election_system.db import get_db
-from test_app import client, election_management_snapshot, login, set_management_election_state
+from test_app import (
+    ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login, set_management_election_state,
+)
 from test_candidate_management import wait_for_locked_request
 
 
@@ -38,8 +40,7 @@ def close_election(client, closure):
         set_management_election_state(client, "CLOSED")
     else:
         with client.application.test_client() as administrator:
-            with administrator.session_transaction() as session:
-                session.update(user_id=1, role="ADMIN")
+            login(administrator, "admin", ADMIN_PASSWORD)
             response = administrator.post("/admin/election/1/close", follow_redirects=True)
             assert b"Election has been closed early" in response.data
 
@@ -51,7 +52,7 @@ def test_closed_election_blocks_requests_and_decisions_from_old_forms(client, cl
     if action != "request":
         seed_participation(client)
     route, data, role = eligibility_action(action)
-    login(client, "voter1" if role == "VOTER" else "admin", "voter123" if role == "VOTER" else "admin123")
+    login(client, "voter1" if role == "VOTER" else "admin", VOTER_PASSWORD if role == "VOTER" else ADMIN_PASSWORD)
     assert f'action="{route}"'.encode() in client.get("/election/1").data
 
     close_election(client, closure)
@@ -73,7 +74,7 @@ def test_closed_election_blocks_requests_and_decisions_from_old_forms(client, cl
 def test_closed_eligibility_records_remain_visible_without_action_forms(client, role, status):
     seed_participation(client, status)
     set_management_election_state(client, "CLOSED")
-    login(client, "voter1" if role == "VOTER" else "admin", "voter123" if role == "VOTER" else "admin123")
+    login(client, "voter1" if role == "VOTER" else "admin", VOTER_PASSWORD if role == "VOTER" else ADMIN_PASSWORD)
     before = election_management_snapshot(client)
     page = client.get("/election/1").data
     assert status.encode() in page
@@ -93,7 +94,7 @@ def test_closed_eligibility_records_remain_visible_without_action_forms(client, 
 @pytest.mark.parametrize("status", ["APPROVED", "REJECTED"])
 def test_open_election_still_accepts_requests_and_decisions(client, state, status):
     set_management_election_state(client, state)
-    login(client, "voter1", "voter123")
+    login(client, "voter1", VOTER_PASSWORD)
     assert b'action="/election/1/request"' in client.get("/election/1").data
     response = client.post("/election/1/request", follow_redirects=True)
     assert b"Participation request submitted" in response.data
@@ -102,7 +103,7 @@ def test_open_election_still_accepts_requests_and_decisions(client, state, statu
     assert b"already submitted a request" in response.data
     assert election_management_snapshot(client) == before_duplicate
 
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     assert b'action="/admin/election/1/voter/2/status"' in client.get("/election/1").data
     response = client.post("/admin/election/1/voter/2/status", data={"status": status}, follow_redirects=True)
     assert f"Voter eligibility updated to {status}.".encode() in response.data
@@ -116,7 +117,7 @@ def test_open_election_still_accepts_requests_and_decisions(client, state, statu
         assert f"Set Voter ID 2 eligibility to {status} for Election ID 1" == logs[0]["action"]
 
     if state == "ACTIVE" and status == "APPROVED":
-        login(client, "voter1", "voter123")
+        login(client, "voter1", VOTER_PASSWORD)
         response = client.post("/election/1/vote", data={"candidate_id": 1}, follow_redirects=True)
         assert b"Vote successfully recorded!" in response.data
 
@@ -124,7 +125,7 @@ def test_open_election_still_accepts_requests_and_decisions(client, state, statu
 @pytest.mark.parametrize("action", ["request", "APPROVED", "REJECTED"])
 def test_missing_election_eligibility_actions_return_to_dashboard(client, action):
     route, data, role = eligibility_action(action, election_id=999)
-    login(client, "voter1" if role == "VOTER" else "admin", "voter123" if role == "VOTER" else "admin123")
+    login(client, "voter1" if role == "VOTER" else "admin", VOTER_PASSWORD if role == "VOTER" else ADMIN_PASSWORD)
     before = election_management_snapshot(client)
     response = client.post(route, data=data)
     assert response.status_code == 302
@@ -143,7 +144,7 @@ def test_eligibility_decision_requires_a_request_for_this_election(client, statu
             )
             database.create_participation(other_election_id, 2)
 
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     before = election_management_snapshot(client)
     route, data, _ = eligibility_action(status)
     response = client.post(route, data=data)
@@ -159,7 +160,7 @@ def test_eligibility_decision_requires_a_request_for_this_election(client, statu
 @pytest.mark.parametrize("status,reversal", [("APPROVED", "REJECTED"), ("REJECTED", "APPROVED")])
 def test_eligibility_audits_decisions_and_reversals_but_skips_repeats(client, status, reversal):
     seed_participation(client)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     route, data, _ = eligibility_action(status)
 
     response = client.post(route, data=data, follow_redirects=True)
@@ -191,9 +192,47 @@ def test_eligibility_audits_decisions_and_reversals_but_skips_repeats(client, st
 
 
 @pytest.mark.parametrize("status", ["APPROVED", "REJECTED"])
+def test_eligibility_is_locked_after_a_vote(client, status):
+    seed_participation(client, "APPROVED")
+    route, data, _ = eligibility_action(status)
+    login(client, "admin", ADMIN_PASSWORD)
+    assert f'action="{route}"'.encode() in client.get("/election/1").data
+
+    login(client, "voter1", VOTER_PASSWORD)
+    vote = client.post("/election/1/vote", data={"candidate_id": 1}, follow_redirects=True)
+    assert b"Vote successfully recorded!" in vote.data
+
+    login(client, "admin", ADMIN_PASSWORD)
+    before = election_management_snapshot(client)
+    response = client.post(route, data=data, follow_redirects=True)
+    assert response.request.path == "/election/1"
+    assert b"Voter eligibility cannot be changed after a ballot has been recorded." in response.data
+    assert f'action="{route}"'.encode() not in response.data
+    assert election_management_snapshot(client) == before
+
+
+def test_waiting_eligibility_decision_preserves_a_vote_that_commits_first(client, monkeypatch):
+    seed_participation(client, "APPROVED")
+    route, data, role = eligibility_action("REJECTED")
+    before = None
+
+    def vote_while_waiting(db):
+        nonlocal before
+        db.execute("UPDATE voter_participation SET has_voted = 1 WHERE election_id = 1 AND voter_id = 2")
+        db.execute("INSERT INTO ballots VALUES ('accepted-ballot', 1, 1)")
+        before = list(db.iterdump())
+
+    response = wait_for_locked_request(
+        client.application, monkeypatch, route, data, vote_while_waiting, role=role,
+    )
+    assert b"Voter eligibility cannot be changed after a ballot has been recorded." in response.data
+    assert election_management_snapshot(client) == before
+
+
+@pytest.mark.parametrize("status", ["APPROVED", "REJECTED"])
 def test_eligibility_audit_failure_rolls_back_decision_and_audit(client, monkeypatch, status):
     seed_participation(client)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     before = election_management_snapshot(client)
     real_log_audit = database.log_audit
 
@@ -229,8 +268,8 @@ def test_waiting_eligibility_actions_recheck_closed_state(client, monkeypatch, a
     def close_while_waiting(db):
         nonlocal before
         if closure == "early":
-            db.execute("UPDATE elections SET end_time = ? WHERE id = 1", (
-                (datetime.now() - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M"),
+            db.execute("UPDATE elections SET closed_early_at = ? WHERE id = 1", (
+                datetime.now().isoformat(timespec="seconds"),
             ))
         else:
             monkeypatch.setattr(services, "datetime", Clock)

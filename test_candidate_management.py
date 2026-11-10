@@ -10,11 +10,11 @@ import pytest
 
 from election_system import create_app, db as database, services
 from election_system.db import get_db, init_db
-from test_app import client, election_management_snapshot, login
+from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login
 
 
 def draft(client, *, future=False, count=2):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     now = datetime.now()
     response = client.post("/admin/election/create", data={
         "title": "Private draft election", "description": "Still preparing the roster",
@@ -118,7 +118,7 @@ def test_confirmed_schedule_starts_automatically_and_repeat_confirmation_is_noop
 
 def test_drafts_are_private_and_cannot_receive_participation_or_votes(client):
     election_id = draft(client)
-    login(client, "voter1", "voter123")
+    login(client, "voter1", VOTER_PASSWORD)
     before = election_management_snapshot(client)
     assert b"Private draft election" not in client.get("/").data
     assert b"Private draft election" not in client.get(f"/election/{election_id}", follow_redirects=True).data
@@ -126,7 +126,7 @@ def test_drafts_are_private_and_cannot_receive_participation_or_votes(client):
     candidate_id = candidates(client, election_id)[0]["id"]
     assert b"not currently active" in client.post(f"/election/{election_id}/vote", data={"candidate_id": candidate_id}, follow_redirects=True).data
     assert election_management_snapshot(client) == before
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     assert b"Only ACTIVE elections" in client.post(f"/admin/election/{election_id}/close", follow_redirects=True).data
     assert_state(client, election_id, "DRAFT")
 
@@ -210,9 +210,9 @@ def test_roster_changes_revoke_confirmation_and_preserve_participation(client, o
     election_id = draft(client, future=True)
     candidate_id = candidates(client, election_id)[0]["id"]
     confirm(client, election_id)
-    login(client, "voter1", "voter123")
+    login(client, "voter1", VOTER_PASSWORD)
     client.post(f"/election/{election_id}/request")
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     data = {"name": "New candidate", "manifesto": "New manifesto"}
     if operation == "update":
         data = edit_data(client, election_id, candidate_id, name="Updated name")
@@ -334,7 +334,7 @@ def test_candidate_and_confirmation_audit_failures_roll_back_all_changes(client,
 @pytest.mark.parametrize("action", ["candidate/1/update", "confirm"])
 def test_new_routes_require_administrator_and_post(client, role, action):
     if role:
-        login(client, role, "voter123")
+        login(client, role, VOTER_PASSWORD)
     before = election_management_snapshot(client)
     route = "/admin/election/1/" + action
     assert client.get(route).status_code == 405
@@ -404,8 +404,10 @@ def wait_for_locked_request(app, monkeypatch, route, data, mutate, role="ADMIN")
 
     def submit():
         with app.test_client() as requester:
-            with requester.session_transaction() as session:
-                session.update(user_id=1 if role == "ADMIN" else 2, role=role)
+            if role == "ADMIN":
+                login(requester, "admin", ADMIN_PASSWORD)
+            else:
+                login(requester, "voter1", VOTER_PASSWORD)
             return requester.post(route, data=data, follow_redirects=True)
 
     try:
@@ -499,9 +501,7 @@ def test_waiting_vote_rechecks_latest_election_and_eligibility(client, monkeypat
     def mutate(db):
         nonlocal now
         if newer_action == "close":
-            db.execute("UPDATE elections SET end_time = ? WHERE id = 1", (
-                (end - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M"),
-            ))
+            db.execute("UPDATE elections SET closed_early_at = ? WHERE id = 1", (now.isoformat(timespec="seconds"),))
         elif newer_action == "deadline":
             now = end
         else:
@@ -535,7 +535,7 @@ def legacy_app(tmp_path, *, blocked=False):
     path = tmp_path / "legacy.db"
     db = sqlite3.connect(path)
     schema = database.SCHEMA.replace(
-        ",\n    is_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(is_confirmed IN (0, 1))", ""
+        ",\n    is_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(is_confirmed IN (0, 1)),\n    closed_early_at TEXT", ""
     )
     db.executescript(schema)
     db.execute("INSERT INTO users VALUES (1, 'legacy_admin', 'hash', 'ADMIN')")

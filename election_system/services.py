@@ -18,6 +18,8 @@ def get_election_status(election, now=None):
     """Return the status with an inclusive start and exclusive end for voting."""
     if not election["is_confirmed"]:
         return "DRAFT"
+    if election["closed_early_at"] is not None:
+        return "CLOSED"
     if now is None:
         now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     if now >= election["end_time"]:
@@ -89,10 +91,28 @@ def update_election_details(election_id, admin_id, title, description, start_tim
 
 
 # -------------------------------------------------------------------------
+# CLOSE AN ACTIVE ELECTION AND RECORD THE ADMINISTRATIVE AUDIT
+# -------------------------------------------------------------------------
+def close_election_early(election_id, admin_id):
+    with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        election = database.find_election(election_id)
+        if election is None:
+            raise LookupError("Election not found.")
+        now = datetime.now()
+        if get_election_status(election, now=now.isoformat(timespec="minutes")) != "ACTIVE":
+            return "Only ACTIVE elections can be closed early.", "warning"
+
+        database.mark_election_closed_early(election_id, now.isoformat(timespec="seconds"))
+        database.log_audit(admin_id, f"Closed Election ID {election_id} ('{election['title']}') early")
+    return "Election has been closed early. Official results are now published.", "info"
+
+
+# -------------------------------------------------------------------------
 # UPDATE VOTER ELIGIBILITY & ITS AUDIT BEFORE ELECTION CLOSURE
 # -------------------------------------------------------------------------
 def update_voter_eligibility(election_id, admin_id, voter_id, status):
-    """Recheck closure after obtaining the write lock and commit the decision with its audit."""
+    """Lock before checking eligibility and commit the decision with its audit."""
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         election = database.find_election(election_id)
@@ -101,8 +121,11 @@ def update_voter_eligibility(election_id, admin_id, voter_id, status):
         if get_election_status(election) == "CLOSED":
             raise ValueError("Voter eligibility cannot be changed after this election has closed.")
         if database.update_voter_status(election_id, voter_id, status) == 0:
-            if database.find_participation(election_id, voter_id) is None:
+            participation = database.find_participation(election_id, voter_id)
+            if participation is None:
                 raise ValueError("Participation request not found for this election.")
+            if participation["has_voted"]:
+                raise ValueError("Voter eligibility cannot be changed after a ballot has been recorded.")
             return f"Voter eligibility is already {status}.", "info"
         database.log_audit(
             admin_id,

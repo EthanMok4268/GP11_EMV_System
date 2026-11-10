@@ -7,7 +7,7 @@ from werkzeug.datastructures import MultiDict
 
 from election_system import db as database
 from election_system.db import get_db
-from test_app import client, election_management_snapshot, login
+from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login
 
 
 CREATE_URL = "/admin/election/create"
@@ -68,7 +68,7 @@ def assert_preserved(page, original):
 @pytest.mark.parametrize("method", ["get", "post"])
 def test_creation_requires_admin(client, username, method):
     if username:
-        login(client, username, "voter123")
+        login(client, username, VOTER_PASSWORD)
     before = election_management_snapshot(client)
     response = getattr(client, method)(CREATE_URL, data=creation_data(confirm_without_candidates="yes"))
     assert response.status_code == 302
@@ -78,7 +78,7 @@ def test_creation_requires_admin(client, username, method):
 
 
 def test_dashboard_links_to_dedicated_form(client):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     dashboard = client.get("/").data
     assert b'href="/admin/election/create"' in dashboard
     assert b'action="/admin/election/create"' not in dashboard
@@ -93,7 +93,7 @@ def test_dashboard_links_to_dedicated_form(client):
 
 @pytest.mark.parametrize("count", [1, 2, 4])
 def test_creates_whole_roster_as_private_draft_and_audits(client, count):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(
         candidate_name=["  Same candidate  "] * count,
         candidate_manifesto=[f"  Manifesto {index}  " for index in range(count)],
@@ -117,7 +117,7 @@ def test_creates_whole_roster_as_private_draft_and_audits(client, count):
         for index, log in enumerate(logs[1:]):
             assert "Election ID 2" in log["action"]
             assert f"Manifesto {index}" in log["action"]
-    login(client, "voter1", "voter123")
+    login(client, "voter1", VOTER_PASSWORD)
     assert b"New student election" not in client.get("/").data
     assert client.get("/election/2").headers["Location"] == "/"
 
@@ -125,7 +125,7 @@ def test_creates_whole_roster_as_private_draft_and_audits(client, count):
 @pytest.mark.parametrize("acknowledgement", [None, "", "no", "true"])
 @pytest.mark.parametrize("blank_rows", [False, True])
 def test_empty_roster_requires_explicit_confirmation_without_writing(client, acknowledgement, blank_rows):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data()
     if acknowledgement is not None:
         fields["confirm_without_candidates"] = acknowledgement
@@ -142,7 +142,7 @@ def test_empty_roster_requires_explicit_confirmation_without_writing(client, ack
 
 
 def test_explicit_empty_roster_confirmation_creates_draft(client):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     response = client.post(CREATE_URL, data=creation_data(
         candidate_name=["  "], candidate_manifesto=["\t"], confirm_without_candidates="yes",
     ))
@@ -154,7 +154,7 @@ def test_explicit_empty_roster_confirmation_creates_draft(client):
 
 
 def test_no_script_warning_cancel_and_retry_preserve_form(client):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(candidate_name=[""], candidate_manifesto=[""])
     before = election_management_snapshot(client)
     warning = client.post(CREATE_URL, data=fields)
@@ -177,7 +177,7 @@ def test_no_script_warning_cancel_and_retry_preserve_form(client):
     (["Alice", "Bob"], ["Manifesto"]), (["Alice"], ["First", "Second"]),
 ])
 def test_invalid_candidates_do_not_write_and_keep_every_input(client, names, manifestos):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(candidate_name=names, candidate_manifesto=manifestos, confirm_without_candidates="yes")
     before = election_management_snapshot(client)
     response = client.post(CREATE_URL, data=fields)
@@ -194,7 +194,7 @@ def test_invalid_candidates_do_not_write_and_keep_every_input(client, names, man
 
 
 def test_blank_rows_between_candidates_are_ignored(client):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     response = client.post(CREATE_URL, data=creation_data(
         candidate_name=["", "Alice", "  ", "Bob"], candidate_manifesto=["", "First", "\t", "Second"],
     ))
@@ -207,7 +207,7 @@ def test_blank_rows_between_candidates_are_ignored(client):
     {"title": "   "}, {"start_time": "bad date"}, {"end_time": "2100-01-01T08:00"},
 ])
 def test_invalid_election_is_reported_before_empty_roster_warning(client, invalid):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(**invalid)
     before = election_management_snapshot(client)
     response = client.post(CREATE_URL, data=fields)
@@ -219,7 +219,7 @@ def test_invalid_election_is_reported_before_empty_roster_warning(client, invali
 
 @pytest.mark.parametrize("failure", ["second_candidate", "candidate_audit"])
 def test_late_write_failure_rolls_back_entire_creation_and_allows_retry(client, monkeypatch, failure):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(candidate_name=["Alice", "Bob"], candidate_manifesto=["First", "Second"])
     before = election_management_snapshot(client)
     original_add = database.add_candidate
@@ -248,7 +248,7 @@ def test_late_write_failure_rolls_back_entire_creation_and_allows_retry(client, 
 
 
 def test_redisplayed_and_saved_values_are_escaped(client):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     fields = creation_data(
         title='"><script>alert(1)</script>', description="</textarea><script>alert(2)</script>",
         candidate_name=['"><script>alert(3)</script>'], candidate_manifesto=[""],

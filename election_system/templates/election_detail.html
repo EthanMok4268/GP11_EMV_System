@@ -25,7 +25,10 @@
             </div>
         </div>
         <p class="text-muted mb-1">{{ election.description }}</p>
-        <small class="text-secondary">Start: {{ election.start_time }} | End: {{ election.end_time }}</small>
+        <small class="text-secondary">
+            Start: {{ election.start_time }} | End: {{ election.closed_early_at or election.end_time }}
+            {% if election.closed_early_at %}(closed early, scheduled end: {{ election.end_time }}){% endif %}
+        </small>
     </div>
 </div>
 

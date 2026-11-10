@@ -5,10 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 from election_system import db as database
 from election_system.db import get_db, init_db
-from test_app import client, election_management_snapshot, login, set_management_election_state
+from test_app import (
+    ADMIN_PASSWORD, VOTER_PASSWORD, client, election_management_snapshot, login, set_management_election_state,
+)
 
 
 def set_state(client, state):
@@ -23,14 +26,14 @@ def set_state(client, state):
 @pytest.fixture
 def closed_client(client):
     set_state(client, "CLOSED")
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     return client
 
 
 @pytest.fixture(params=["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED"])
 def deletable_client(client, request):
     set_state(client, request.param)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     return client
 
 
@@ -45,7 +48,7 @@ def deletion_data(client, election_id=1):
 @pytest.mark.parametrize("role", ["ADMIN", "VOTER"])
 def test_deletion_controls_only_appear_for_admin_on_deletable_detail(client, state, role):
     set_state(client, state)
-    login(client, "admin" if role == "ADMIN" else "voter1", "admin123" if role == "ADMIN" else "voter123")
+    login(client, "admin" if role == "ADMIN" else "voter1", ADMIN_PASSWORD if role == "ADMIN" else VOTER_PASSWORD)
     page = client.get("/election/1", follow_redirects=True).data
     visible = role == "ADMIN" and state in ("DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED")
     assert (b'id="open-election-deletion"' in page) is visible
@@ -81,7 +84,7 @@ def test_deletion_requires_logged_in_administrator(deletable_client, role):
     data = deletion_data(client)
     client.get("/logout")
     if role == "VOTER":
-        login(client, "voter1", "voter123")
+        login(client, "voter1", VOTER_PASSWORD)
     before = election_management_snapshot(client)
     response = client.post("/admin/election/1/delete", data=data, follow_redirects=True)
     assert (b"Please log in" if role == "ANONYMOUS" else b"Administrator privileges required") in response.data
@@ -123,15 +126,20 @@ def test_deletion_token_is_bound_to_election_admin_and_session(deletable_client,
         data["deletion_token"] = deletion_data(client, 2)["deletion_token"]
     elif invalid == "other_session":
         client.get("/logout")
-        login(client, "admin", "admin123")
+        login(client, "admin", ADMIN_PASSWORD)
         assert deletion_data(client)["deletion_token"] != data["deletion_token"]
     elif invalid == "other_admin":
         with client.application.app_context():
             with get_db() as db:
-                db.execute("INSERT INTO users (username, password_hash, role) VALUES ('admin2', 'unused', 'ADMIN')")
+                db.execute(
+                    "INSERT INTO users (username, password_hash, role) VALUES ('admin2', ?, 'ADMIN')",
+                    (generate_password_hash(ADMIN_PASSWORD),),
+                )
         with client.session_transaction() as session:
-            session["user_id"] = 3
-            session["username"] = "admin2"
+            nonce = session["election_deletion_nonce"]
+        login(client, "admin2", ADMIN_PASSWORD)
+        with client.session_transaction() as session:
+            session["election_deletion_nonce"] = nonce
     else:
         with client.session_transaction() as session:
             session.pop("election_deletion_nonce")
@@ -172,7 +180,7 @@ def populate_related_data(client):
 @pytest.mark.parametrize("state", ["DRAFT", "EXPIRED_DRAFT", "UPCOMING", "CLOSED", "CLOSED_EARLY"])
 def test_confirmed_deletion_cascades_and_preserves_other_elections_users_and_audits(client, state):
     set_state(client, "ACTIVE" if state == "CLOSED_EARLY" else state)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     if state == "CLOSED_EARLY":
         response = client.post("/admin/election/1/close", follow_redirects=True)
         assert b"Election has been closed early" in response.data
@@ -204,7 +212,7 @@ def test_confirmed_deletion_cascades_and_preserves_other_elections_users_and_aud
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
         init_db()
         assert database.find_election(1) is None
-    login(client, "voter1", "voter123")
+    login(client, "voter1", VOTER_PASSWORD)
     response = client.get("/election/1", follow_redirects=True)
     assert b"Election not found" in response.data
 
@@ -215,7 +223,7 @@ def test_draft_without_candidates_can_be_deleted(client, state):
     with client.application.app_context():
         with get_db() as db:
             db.execute("DELETE FROM candidates WHERE election_id = 1")
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     response = client.post("/admin/election/1/delete", data=deletion_data(client), follow_redirects=True)
     assert b"deleted permanently" in response.data
     with client.application.app_context():

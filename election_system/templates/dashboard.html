@@ -14,7 +14,10 @@
                 <div>
                     <h5 class="mb-1">{{ item.row.title }}</h5>
                     <p class="text-muted small mb-1">{{ item.row.description }}</p>
-                    <small class="text-secondary">🕒 {{ item.row.start_time }} to {{ item.row.end_time }}</small>
+                    <small class="text-secondary">
+                        🕒 {{ item.row.start_time }} to {{ item.row.closed_early_at or item.row.end_time }}
+                        {% if item.row.closed_early_at %}(closed early, scheduled end: {{ item.row.end_time }}){% endif %}
+                    </small>
                     {% if session['role'] == 'VOTER' and item.part %}
                         <div class="mt-1">
                             <span class="badge bg-info text-dark">Eligibility: {{ item.part.status }}</span>

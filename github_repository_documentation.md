@@ -87,7 +87,7 @@ GP11_EMV_System/
 │   ├── voting.py                 # Participation and ballot submission
 │   ├── admin.py                  # Election, candidate and eligibility management
 │   ├── services.py               # Election status and atomic voting rules
-│   ├── db.py                     # SQLite schema, connections, demo data and queries
+│   ├── db.py                     # SQLite schema, migrations, connections and queries
 │   └── templates/                # Shared layout and page templates
 ├── test_app.py                   # Automated Pytest suite
 ├── test_candidate_management.py  # Candidate, readiness, migration and race tests
@@ -95,11 +95,13 @@ GP11_EMV_System/
 └── README.md                     # Project documentation
 ```
 
-The database defaults to `election_system.db` in the current working directory. Running `python app.py` initializes missing tables and seeds demo data only when no users exist. The demo election has two complete candidates and is already confirmed. Tests use `create_app({"TESTING": True, "DATABASE": ...})` to create isolated application instances.
+The database defaults to `election_system.db` in the current working directory. Both `python app.py` and `python app.py --admin` initialize missing tables. A fresh database starts empty. Tests use a separate temporary database and signing key.
 
 Existing databases receive a one-time, transactional `is_confirmed` migration. Closed elections stay closed; unfinished elections with at least two complete candidates retain their schedule; unfinished elections with incomplete rosters and no ballots become drafts. Repeated initialization never reconfirms drafts or resets existing data.
 
 The migration performs its preflight before changing the schema or data. If an unfinished election has accepted ballots but lacks two complete candidates, startup stops and lists its ID. Use the previous application version to end that election, then restart the upgrade. Ballots, participation requests, candidate IDs, and audit history are preserved.
+
+Before upgrading, stop older application processes and make a backup of the SQLite database. Set a new private `SECRET_KEY` when upgrading from the version with a built-in signing key, then sign in again and reload any open forms. The upgrade preserves user IDs, elections, ballots and audit history. The previous demo voter credentials are blocked for voter registration and sign-in. Use `python app.py --admin` to change an existing administrator's username or password.
 
 ### Naming and organization conventions
 
@@ -115,48 +117,65 @@ The migration performs its preflight before changing the schema or data. If an u
 ### Prerequisites
 * **Python 3.9+** installed on Windows, macOS, or Linux.
 
-### Step 1: Clone the Repository
+### 1. Clone the repository
 ```powershell
 git clone https://github.com/<your-username>/GP11_EMV_System.git
 cd GP11_EMV_System
 ```
 
-### Step 2: Create & Activate Virtual Environment (Windows PowerShell / PyCharm)
+### 2. Create and activate a virtual environment
+
+For WSL, Linux or macOS, use these commands.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+For Windows PowerShell, use these commands.
+
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 ```
 *(If `pip` is missing in your virtual environment, run `python -m ensurepip --upgrade` first).*
 
-### Step 3: Install Dependencies
+### 3. Install dependencies
 ```powershell
 python -m pip install -r project_dependencies.txt
 ```
 
-### Step 4: Run the Application
+### 4. Set the signing key
+
+Set `SECRET_KEY` to a securely generated random value of at least 32 characters. Generate it once and keep the same private value across application processes and restarts. Keep it in your secret store and load it into each shell or service environment that runs the application.
+
+To generate the initial value in WSL, Linux or macOS, run the following in your shell.
+
+```bash
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+```
+
+In Windows PowerShell, run the equivalent command.
+
 ```powershell
+$env:SECRET_KEY = (python -c "import secrets; print(secrets.token_urlsafe(48))")
+```
+
+### 5. Set up the administrator
+
+```bash
+python app.py --admin
+```
+
+On a fresh database, enter a username of your choice and a password with at least eight characters, including an English letter and a digit. If administrators already exist, the command lists their usernames and offers an optional password reset. During a reset, enter a new username or leave it blank to keep the current one. Password prompts hide input. The command exits after setup.
+
+### 6. Run the application
+
+```bash
 python app.py
 ```
-Open your browser and navigate to: **`http://127.0.0.1:5000`**
 
----
-
-## 🔑 Default Demo Accounts
-
-When started for the first time, the system automatically seeds a sample active election (**Student Union Presidential Election**) and two test accounts:
-
-| Role | Username | Password | Capabilities |
-| :--- | :--- | :--- | :--- |
-| **Administrator** | `admin` | `admin123` | Create and edit elections, manage candidates, approve/reject voters, view audit logs |
-| **Voter** | `voter1` | `voter123` | Request election participation, view candidates, cast anonymous ballot |
-
-### Quick Demo Walkthrough
-1. Sign in as **`voter1`** (`voter123`), open **Student Union Presidential Election**, and click **Request Participation**.
-2. Log out and sign in as **`admin`** (`admin123`). Open the election and click **Approve** next to `voter1` under *Voter Eligibility Management*.
-3. Log out and sign back in as **`voter1`**. Select a candidate and click **Confirm & Submit Anonymous Ballot**.
-4. Try submitting another vote or re-visiting the page to see duplicate-voting prevention in action.
-
-To try election editing, sign in as **admin** and open an election. The active demo election allows title and description changes and an extended end time. Create a draft to edit all four fields and prepare its candidates. Once an election closes, the panel displays a locked message.
+For local use, open `http://127.0.0.1:5000` and sign in with the administrator account you set up. This launcher listens on loopback and runs with debug mode off. For WSGI deployment, serve `app:app` over HTTPS. The WSGI configuration enables the `Secure` flag on session cookies by default.
 
 ---
 

@@ -1,7 +1,6 @@
 """Administrator election, candidate, and eligibility routes."""
 import json
 import sqlite3
-from datetime import datetime, timedelta
 from itertools import zip_longest
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
@@ -10,7 +9,7 @@ from . import db as database
 from .auth import admin_required, login_required
 from .db import get_db
 from .services import (
-    change_candidate, confirm_election as confirm_election_service, get_election_status,
+    change_candidate, close_election_early as close_election_service, confirm_election as confirm_election_service,
     delete_election as delete_election_service, update_election_details, update_voter_eligibility,
     validate_election_parameters, validate_candidate_parameters,
 )
@@ -258,20 +257,4 @@ def update_voter_status(election_id, voter_id):
 @login_required
 @admin_required
 def close_election_early(election_id):
-    election = database.find_election(election_id)
-    if not election:
-        flash("Election not found.", "danger")
-        return redirect(url_for("elections.dashboard"))
-
-    status = get_election_status(election)
-    if status != "ACTIVE":
-        flash("Only ACTIVE elections can be closed early.", "warning")
-        return redirect(url_for("elections.view_election", election_id=election_id))
-
-    early_end_time = (datetime.now() - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
-    with get_db():
-        database.update_election_end_time(election_id, early_end_time)
-        database.log_audit(session["user_id"], f"Closed Election ID {election_id} ('{election['title']}') early")
-
-    flash("Election has been closed early. Official results are now published.", "info")
-    return redirect(url_for("elections.view_election", election_id=election_id))
+    return _admin_action(election_id, close_election_service)

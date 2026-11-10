@@ -5,7 +5,7 @@ import pytest
 
 from election_system import db as database
 from election_system.db import get_db
-from test_app import client, login
+from test_app import ADMIN_PASSWORD, VOTER_PASSWORD, client, login
 
 
 AUDIT_URL = "/admin/audit-logs"
@@ -55,7 +55,7 @@ def has_more(page):
 @pytest.mark.parametrize("count", [0, 20, 21, 45])
 def test_initial_history_and_continuation_reach_every_entry_once(client, count):
     seed_logs(client, count)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     response = client.get(AUDIT_URL)
     assert response.status_code == 200
     page = AuditPage(response.data)
@@ -91,7 +91,7 @@ def test_initial_history_and_continuation_reach_every_entry_once(client, count):
 
 def test_continuation_is_stable_when_newer_actions_are_added(client):
     seed_logs(client, 45)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     page = AuditPage(client.get(AUDIT_URL).data)
     with client.application.app_context():
         with get_db():
@@ -116,7 +116,7 @@ def test_continuation_is_stable_when_newer_actions_are_added(client):
     "１", "١", "9223372036854775808", "9" * 5000,
 ])
 def test_invalid_cursor_returns_json_bad_request(client, before):
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     response = client.get(ENTRIES_URL, query_string={} if before is None else {"before": before})
     assert response.status_code == 400
     assert response.is_json
@@ -125,7 +125,7 @@ def test_invalid_cursor_returns_json_bad_request(client, before):
 
 def test_exhausted_and_maximum_valid_cursors(client):
     seed_logs(client, 3)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     assert client.get(ENTRIES_URL, query_string={"before": "1"}).get_json() == {
         "entries": [], "next_url": None,
     }
@@ -142,7 +142,7 @@ def test_exhausted_and_maximum_valid_cursors(client):
 def test_history_routes_require_an_administrator(client, username, url):
     seed_logs(client, 1)
     if username:
-        login(client, username, "voter123")
+        login(client, username, VOTER_PASSWORD)
     response = client.get(url)
     assert response.status_code == 302
     assert response.headers["Location"] == ("/" if username else "/login")
@@ -152,7 +152,7 @@ def test_history_routes_require_an_administrator(client, username, url):
 @pytest.mark.parametrize("username", [None, "voter1", "admin"])
 def test_audit_navigation_is_visible_only_to_administrators(client, username):
     if username:
-        login(client, username, "admin123" if username == "admin" else "voter123")
+        login(client, username, ADMIN_PASSWORD if username == "admin" else VOTER_PASSWORD)
     urls = ["/", "/election/1"]
     if username == "admin":
         urls.extend(["/admin/election/create", AUDIT_URL])
@@ -163,7 +163,7 @@ def test_audit_navigation_is_visible_only_to_administrators(client, username):
 
 def test_initial_history_escapes_fields_and_batch_returns_literal_text(client):
     seed_logs(client, 21)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
     unsafe = '<img src=x onerror="alert(1)"> & <script>alert(2)</script>'
     with client.application.app_context():
         with get_db() as db:
@@ -184,7 +184,7 @@ def test_initial_history_escapes_fields_and_batch_returns_literal_text(client):
 
 def test_dashboard_has_full_width_elections_without_loading_audit_history(client, monkeypatch):
     seed_logs(client, 1)
-    login(client, "admin", "admin123")
+    login(client, "admin", ADMIN_PASSWORD)
 
     def unexpected_audit_query(*args, **kwargs):
         raise AssertionError("Dashboard must not query audit history")
