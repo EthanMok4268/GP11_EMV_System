@@ -1,6 +1,17 @@
 # 🗳️ GP11 Election Management and Voting System (`GP11_EMV_System`)
 
-A secure, privacy-preserving web-based Election Management and Voting System prototype built with Python, Flask, and SQLite. Developed by **Group 11 (GP11)** to demonstrate requirement engineering, role-based access control, atomic ballot processing, and automated validation.
+A web-based Election Management and Voting System prototype built with Python, Flask, and SQLite. Developed by **Group 11 (GP11)** to demonstrate requirement engineering, role-based access control, atomic ballot processing, and automated validation.
+
+## Implemented Scope and Limits
+
+The current prototype supports single-choice elections for internal organisations and student societies. It includes voter registration, administrator approval for each election, candidate management, atomic voting, results after closure, and administrative audit history.
+
+* Duplicate-voting prevention applies to each approved voter account in each election. Registration does not verify a person's identity or prevent one person from creating several accounts. SMS OTP verification and unique verified phone numbers are not implemented.
+* Ballots store candidate IDs without a voter ID or timestamp. Ballot choices are not encrypted. Separating participation records from ballots reduces direct identity links; it does not provide cryptographic anonymity.
+* Audit history records administrative actions. It is stored in the same SQLite database and is not immutable or cryptographically tamper-evident. Individual vote choices are not added to the administrative log.
+* The displayed receipt ID confirms that a ballot was recorded. It does not provide end-to-end verification of the published tally.
+
+See [Testing and Evidence](docs/TESTING.md) for reproducible checks and the evidence still needed for browser, performance, and deployment claims.
 
 ---
 
@@ -15,7 +26,7 @@ A secure, privacy-preserving web-based Election Management and Voting System pro
 * **Integrated Election Creation:** A dedicated administrator page shows election details and candidate entries together, side by side on desktop and stacked on mobile. Administrators can add several candidates before saving, or explicitly confirm creating an empty draft. Election settings, candidates, and their audit records are saved together or rolled back together.
 * **Candidate Management:** Administrators can add, edit, or remove candidates while an election is `DRAFT` or `UPCOMING`. Name and manifesto are required, and names cannot consist only of numbers; duplicate names are allowed. Candidate lists lock once voting begins. Changing a confirmed roster returns the election to draft and requires confirmation again.
 * **Voter Eligibility Workflow:** Voters can request participation in `UPCOMING` or `ACTIVE` elections (`PENDING`), and administrators can approve (`APPROVED`) or reject (`REJECTED`) eligibility requests before closure. Recording a ballot locks that voter's eligibility. Once an election is `CLOSED`, new requests and eligibility decisions are blocked. Both actions recheck the latest election state after acquiring a database write lock. Eligibility decisions and their audit entries commit or roll back together.
-* **Electronic Voting & Duplicate Prevention:** Approved voters can cast exactly one ballot during an `ACTIVE` election and receive an immediate confirmation receipt ID.
+* **Electronic Voting & Duplicate Prevention:** Each approved voter account can cast exactly one ballot per `ACTIVE` election and receive an immediate confirmation receipt ID.
 * **Automated Vote Counting & Publication:** Tallies and percentages remain sealed during active voting and are automatically calculated and published once the election reaches the `CLOSED` state.
 * **Administrative Audit Trail:** Records election creation, edits and deletion, candidate additions/edits/removals, roster confirmation, voter eligibility decisions, and early closure with timestamps. Administrators can open **Audit Log** from the navigation bar to view the latest 20 entries, then click **Load More** to append another 20 at a time. The election list uses the full dashboard width. Changes and their previous/new values are committed together with their audit entry. Unchanged submissions do not add audit records or revoke confirmation.
 
@@ -56,7 +67,7 @@ Only **Confirm Deletion** submits the request. **Cancel**, the close button, and
 Deletion uses administrator-only POST `/admin/election/<election_id>/delete` with `confirmed=yes` and a signed `deletion_token` bound to the election, administrator, and current login session. After acquiring a SQLite write lock, the backend reloads the latest state and requires `DRAFT`, `UPCOMING`, or `CLOSED`. If an upcoming election becomes active before submission or while waiting for the lock, deletion is rejected. Foreign-key cascades remove associated records; the deletion and its new audit entry commit or roll back together. Success returns to the election list. Repeated or missing-election requests do not create another deletion audit. No database migration or additional package is required.
 
 ### 2. Non-Functional & Privacy Architecture
-* **Ballot Secrecy (Privacy by Design):** Voter participation status (`voter_participation` table) and actual candidate choices (`ballots` table) are stored in separate tables. The `ballots` table uses random UUIDs (`UUID v4`) and omits voter foreign keys and timestamps to prevent identity correlation.
+* **Separate Participation and Ballot Records:** Voter participation status (`voter_participation` table) and candidate choices (`ballots` table) are stored in separate tables. The `ballots` table uses random UUIDs (`UUID v4`) and omits voter foreign keys and timestamps, reducing direct identity links without encrypting ballot choices.
 * **ACID Data Integrity:** Ballot insertion and the voter's `has_voted` flag update are executed inside a single atomic SQLite transaction (`with db:`). Any unexpected failure triggers a full rollback.
 * **Password Security:** All user passwords are salted and hashed using `werkzeug.security`.
 
@@ -128,11 +139,12 @@ Set a new private `SECRET_KEY` when upgrading from the version with a built-in s
 ## 🚀 Installation & Setup Guide
 
 ### Prerequisites
-* **Python 3.10+** installed on Windows, macOS, or Linux.
+* **Python 3.14+** installed on Windows, macOS, or Linux, matching `pyproject.toml` and the Python 3.14 CI configuration.
+* Git for cloning the repository. Docker is optional for the deployment instructions below.
 
 ### 1. Clone the repository
 ```powershell
-git clone https://github.com/<your-username>/GP11_EMV_System.git
+git clone https://github.com/EthanMok4268/GP11_EMV_System.git
 cd GP11_EMV_System
 ```
 
@@ -141,14 +153,14 @@ cd GP11_EMV_System
 For WSL, Linux or macOS, use these commands.
 
 ```bash
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 ```
 
 For Windows PowerShell, use these commands.
 
 ```powershell
-py -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 *(If `pip` is missing in your virtual environment, run `python -m ensurepip --upgrade` first).*
@@ -364,22 +376,16 @@ Deployment tests use temporary state directories and mocked GitHub/Docker comman
 
 ## 🧪 Running Automated Tests
 
-The automated test suite uses temporary SQLite databases to verify authentication, role-based access, election and candidate management, template escaping, result visibility, atomic voting, duplicate prevention, database reinitialization, and early election closure.
+The pytest suite covers authentication, access control, election and candidate management, eligibility, result visibility, administrative audit history, migrations, and atomic voting with duplicate prevention. Application tests use temporary SQLite databases and test signing keys. Deployment tests use temporary state and mocked GitHub/Docker commands.
 
-Election-edit tests cover state-specific permissions and form controls, date and title validation, administrator-only POST access, stale end times, state changes while waiting for a write lock, audit failure rollback, and preservation of candidates, participation requests, and ballots.
-
-Candidate/readiness tests also cover required names and manifestos, signed stale-form protection, independent edit forms, confirmation revocation, draft privacy, zero/one/two-candidate thresholds, scheduled and immediate activation, expired draft recovery, transaction rollback, actual SQLite lock waits, and legacy migration preflight and rollback.
-
-Integrated creation tests cover administrator-only access, saving one or several candidates, blank and incomplete entries, mismatched candidate fields, numeric names, explicit empty-roster confirmation and cancellation, preservation and escaping of submitted values, and rollback after a later candidate or audit write fails. The new page is also checked in a real browser for candidate controls, dialog cancellation and focus, confirmation, disabled JavaScript, and desktop/mobile layouts.
-
-Deletion tests cover administrator-only access and visibility, explicit confirmation, tokens bound to the election and login session, deletion of drafts (including expired and empty drafts), upcoming and closed elections, active-election protection, complete cascading deletion, preservation of other elections and audit history, repeated requests, transaction rollback, escaped titles, and rechecking state after actual SQLite lock waits. The dialog flow is also checked in a real browser for cancellation, Esc, confirmation, and disabled JavaScript.
-
-Audit-history tests cover administrator-only access and navigation, empty history, 20-entry batches, stable continuation while newer entries are added, invalid cursors, escaped content, and separation from the full-width election dashboard.
-
-Run the test suite from your terminal:
+After installing the dependencies, run from the repository root:
 ```powershell
-python -m pytest -v
+python -m pytest -q
 ```
+
+See [Testing and Evidence](docs/TESTING.md) for the requirement-to-test mapping, targeted commands, manual checks, and evidence format. Record the commit, Python version, date, command, and actual output for each reported run. Attribute testing to whoever performed it; a stored test case alone is not evidence that the group ran it.
+
+Pytest results do not establish real-browser behaviour, live deployment, SMS verification, ballot encryption, or a concurrency/performance target. Record separate evidence for any such claim that is in scope.
 
 ---
 
