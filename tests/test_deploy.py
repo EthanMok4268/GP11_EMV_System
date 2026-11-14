@@ -12,6 +12,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 
+pytest.importorskip("fcntl", reason="Deployment tooling requires POSIX file locking")
+
+
 SPEC = importlib.util.spec_from_file_location(
     "gp11_deploy", Path(__file__).resolve().parents[1] / "scripts" / "deploy.py"
 )
